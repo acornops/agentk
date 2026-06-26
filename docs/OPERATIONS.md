@@ -37,16 +37,16 @@ kubectl -n acornops logs -f deployment/acornops-agent
 
 ## Snapshot Scalability
 
-The current snapshot pipeline uses bounded, paginated Kubernetes list calls. Treat clusters with `<2k` pods or `<10k` watched objects as small, `2k-10k` pods or `10k-50k` watched objects as medium, and `10k+` pods or `50k+` watched objects as large. Large clusters should plan for the watch/cache architecture instead of relying on frequent full-list snapshots.
+The snapshot pipeline uses a Kubernetes watch-backed local cache by default. The agent still sends periodic compact `notify/snapshot` payloads to the control plane, but steady-state resource changes come from watch streams and debounced change-triggered snapshots instead of full-list polling on every interval.
 
-Monitor `snapshot-manager` logs for `durationMs`, `skippedSnapshots`, `droppedSnapshots`, `originalBytes`, and `compressedBytes`. Regular skipped interval snapshots mean polling is beyond the comfortable range. Increase the snapshot interval before raising `ACORNOPS_AGENT_K8S_CONCURRENCY`; higher concurrency can increase API server pressure when list latency is already the bottleneck.
+Bounded, paginated list calls are still used for initial cache sync, namespace-scope changes, 410-compaction recovery, and fallback when the watch cache is disabled, warming, or unhealthy. Monitor `snapshot-manager` logs for `durationMs`, `skippedSnapshots`, `droppedSnapshots`, `originalBytes`, and `compressedBytes`, and monitor `watch-manager` logs for repeated relist or reconnect warnings. If snapshots regularly skip interval ticks, increase the snapshot interval before raising `ACORNOPS_AGENT_K8S_CONCURRENCY`; higher concurrency can increase API server pressure when list latency is already the bottleneck.
 
 ## Failure Modes
 
 - Agent cannot connect: verify `ACORNOPS_AGENT_PLATFORM_URL`, DNS, TLS, and the platform `/api/v1/agent/connect` route.
 - Authentication rejected: rotate or reissue the cluster agent key from the control plane.
 - No telemetry: verify Kubernetes RBAC, namespace scope, metrics-server availability, and collector logs.
-- Slow or skipped telemetry: inspect `snapshot-manager` logs, increase the snapshot interval if collection takes too long, then tune `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` if needed.
+- Slow or skipped telemetry: inspect `watch-manager` and `snapshot-manager` logs, increase the snapshot interval if collection takes too long, then tune `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` if list fallback or relist recovery is the bottleneck.
 - HA does not elect a leader: verify Lease RBAC and `leaderElection.enabled=true`.
 
 ## Required Validation

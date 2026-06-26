@@ -8,6 +8,8 @@ const {
   checkMetricsApi,
   registerAllTools,
   handleRequest,
+  MockWatchManager,
+  watchManagerInstances,
 } = vi.hoisted(() => {
   class SimpleEmitter {
     private listeners = new Map<string, Array<(...args: any[]) => void>>();
@@ -31,6 +33,7 @@ const {
   const checkMetricsApi = vi.fn();
   const registerAllTools = vi.fn();
   const handleRequest = vi.fn();
+  const watchManagerInstances: any[] = [];
 
   class MockWebSocketClient extends SimpleEmitter {
     connect = vi.fn();
@@ -56,6 +59,16 @@ const {
     }
   }
 
+  class MockWatchManager {
+    start = vi.fn();
+    stop = vi.fn();
+    restart = vi.fn();
+
+    constructor() {
+      watchManagerInstances.push(this);
+    }
+  }
+
   return {
     MockWebSocketClient,
     MockSnapshotManager,
@@ -64,6 +77,8 @@ const {
     checkMetricsApi,
     registerAllTools,
     handleRequest,
+    MockWatchManager,
+    watchManagerInstances,
   };
 });
 
@@ -83,6 +98,7 @@ vi.mock('../config.js', () => ({
 }));
 vi.mock('../transport/websocket-client.js', () => ({ WebSocketClient: MockWebSocketClient }));
 vi.mock('./snapshot-manager.js', () => ({ SnapshotManager: MockSnapshotManager }));
+vi.mock('./watch/watch-manager.js', () => ({ WatchManager: MockWatchManager }));
 vi.mock('../k8s/metrics.js', () => ({ checkMetricsApi }));
 vi.mock('../mcp/router.js', () => ({ mcpRouter: { handleRequest } }));
 vi.mock('../tools/index.js', () => ({ registerAllTools }));
@@ -95,6 +111,7 @@ describe('LifecycleManager', () => {
     vi.clearAllMocks();
     clientInstances.length = 0;
     snapshotManagerInstances.length = 0;
+    watchManagerInstances.length = 0;
     checkMetricsApi.mockResolvedValue(true);
     handleRequest.mockResolvedValue({ jsonrpc: '2.0', id: 7, result: { ok: true } });
   });
@@ -168,6 +185,7 @@ describe('LifecycleManager', () => {
     await Promise.resolve();
 
     expect(clientInstances[0]!.markReady).toHaveBeenCalledTimes(1);
+    expect(watchManagerInstances[0]!.start).toHaveBeenCalledTimes(1);
     expect(snapshotManagerInstances[0]!.start).toHaveBeenCalledWith(15, 2048);
 
     vi.advanceTimersByTime(30000);
@@ -228,7 +246,7 @@ describe('LifecycleManager', () => {
     );
   });
 
-  it('applies namespace scope updates without routing through tool handlers', async () => {
+  it('applies pre-handshake namespace scope updates without starting watches', async () => {
     const lifecycle = new LifecycleManager();
     lifecycle.start();
 
@@ -250,7 +268,8 @@ describe('LifecycleManager', () => {
     await Promise.resolve();
 
     expect(handleRequest).not.toHaveBeenCalled();
-    expect(snapshotManagerInstances[0]!.triggerSnapshot).toHaveBeenCalledTimes(1);
+    expect(watchManagerInstances[0]!.restart).not.toHaveBeenCalled();
+    expect(snapshotManagerInstances[0]!.triggerSnapshot).not.toHaveBeenCalled();
     expect(clientInstances[0]!.send).toHaveBeenCalledWith(
       JSON.stringify({
         jsonrpc: '2.0',
@@ -264,6 +283,40 @@ describe('LifecycleManager', () => {
         }
       })
     );
+  });
+
+  it('restarts watches for post-handshake namespace scope updates', async () => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+
+    clientInstances[0]!.emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'handshake-1',
+      result: { workspaceId: 'ws-1', targetId: 'cluster-1', targetType: 'kubernetes', config: {} },
+    }));
+    await Promise.resolve();
+
+    clientInstances[0]!.emit(
+      'message',
+      Buffer.from(JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'scope-1',
+        method: 'config/update_namespace_scope',
+        params: {
+          namespaceScope: {
+            include: ['default', 'payments'],
+            exclude: ['payments']
+          }
+        }
+      }))
+    );
+
+    await Promise.resolve();
+
+    expect(handleRequest).not.toHaveBeenCalled();
+    expect(watchManagerInstances[0]!.start).toHaveBeenCalledTimes(1);
+    expect(watchManagerInstances[0]!.restart).toHaveBeenCalledTimes(1);
+    expect(snapshotManagerInstances[0]!.triggerSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it('forces reconnect on handshake failure and stops snapshots on close', async () => {
@@ -293,6 +346,7 @@ describe('LifecycleManager', () => {
     clientInstances[0]!.emit('close');
 
     expect(snapshotManagerInstances[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(watchManagerInstances[0]!.stop).toHaveBeenCalledTimes(1);
 
     const sendCount = clientInstances[0]!.send.mock.calls.length;
     vi.advanceTimersByTime(30000);
@@ -309,6 +363,7 @@ describe('LifecycleManager', () => {
     lifecycle.stop();
 
     expect(snapshotManagerInstances[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(watchManagerInstances[0]!.stop).toHaveBeenCalledTimes(1);
     expect(clientInstances[0]!.close).toHaveBeenCalledTimes(1);
 
     clientInstances[0]!.emit('open');

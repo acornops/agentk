@@ -64,6 +64,14 @@ spec:
               value: {{ .Values.config.k8sConcurrency | quote }}
             - name: ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT
               value: {{ .Values.config.k8sListPageLimit | quote }}
+            - name: ACORNOPS_AGENT_WATCH_CACHE_ENABLED
+              value: {{ .Values.config.watchCacheEnabled | quote }}
+            - name: ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS
+              value: {{ .Values.config.watchSnapshotDebounceMs | quote }}
+            - name: ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS
+              value: {{ .Values.config.watchCacheSyncTimeoutMs | quote }}
+            - name: ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS
+              value: {{ .Values.config.watchTimeoutSeconds | quote }}
             - name: ACORNOPS_AGENT_LOCAL_FALLBACK_ENABLED
               value: {{ .Values.config.localFallbackEnabled | quote }}
             - name: ACORNOPS_AGENT_LEADER_ELECTION_ENABLED

@@ -13,6 +13,10 @@ const configSchema = z.object({
   ACORNOPS_AGENT_KUBECONFIG_SKIP_TLS_VERIFY: z.string().optional().default('false').transform(val => val === 'true'),
   ACORNOPS_AGENT_K8S_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(8),
   ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT: z.coerce.number().int().min(1).max(1000).default(500),
+  ACORNOPS_AGENT_WATCH_CACHE_ENABLED: z.string().optional().default('true').transform(val => val === 'true'),
+  ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS: z.coerce.number().int().min(0).max(60000).default(5000),
+  ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(15000),
+  ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(1800).default(300),
   ACORNOPS_AGENT_WATCH_NAMESPACES: z.string().optional().transform(val => {
     if (!val) return undefined;
     const namespaces = val.split(',').map(s => s.trim());

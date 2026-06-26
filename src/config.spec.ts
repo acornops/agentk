@@ -45,25 +45,40 @@ describe('config', () => {
     expect(config.ACORNOPS_AGENT_POD_NAMESPACE).toBe('agents');
     expect(config.ACORNOPS_AGENT_K8S_CONCURRENCY).toBe(8);
     expect(config.ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT).toBe(500);
+    expect(config.ACORNOPS_AGENT_WATCH_CACHE_ENABLED).toBe(true);
+    expect(config.ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS).toBe(5000);
+    expect(config.ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS).toBe(15000);
+    expect(config.ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS).toBe(300);
     expect(config.TARGET_ID).toBe('cluster-1');
   });
 
-  it('accepts explicit Kubernetes API concurrency and list page limit', async () => {
+  it('accepts explicit Kubernetes API and watch cache settings', async () => {
     setBaseEnv({
       ACORNOPS_AGENT_K8S_CONCURRENCY: '12',
       ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT: '250',
+      ACORNOPS_AGENT_WATCH_CACHE_ENABLED: 'false',
+      ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS: '250',
+      ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS: '2000',
+      ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS: '60',
     });
 
     const { config } = await importConfigModule();
 
     expect(config.ACORNOPS_AGENT_K8S_CONCURRENCY).toBe(12);
     expect(config.ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT).toBe(250);
+    expect(config.ACORNOPS_AGENT_WATCH_CACHE_ENABLED).toBe(false);
+    expect(config.ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS).toBe(250);
+    expect(config.ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS).toBe(2000);
+    expect(config.ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS).toBe(60);
   });
 
   it('rejects out-of-range Kubernetes API collection settings', async () => {
     setBaseEnv({
       ACORNOPS_AGENT_K8S_CONCURRENCY: '0',
       ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT: '1001',
+      ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS: '60001',
+      ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS: '999',
+      ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS: '29',
     });
 
     vi.spyOn(process, 'exit').mockImplementation((() => {
@@ -77,6 +92,9 @@ describe('config', () => {
       expect.objectContaining({
         ACORNOPS_AGENT_K8S_CONCURRENCY: expect.arrayContaining([expect.any(String)]),
         ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT: expect.arrayContaining([expect.any(String)]),
+        ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS: expect.arrayContaining([expect.any(String)]),
+        ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS: expect.arrayContaining([expect.any(String)]),
+        ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS: expect.arrayContaining([expect.any(String)]),
       }),
     );
   });

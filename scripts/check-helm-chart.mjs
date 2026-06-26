@@ -68,6 +68,10 @@ assertMatch(readOnly, /name: ACORNOPS_AGENT_WRITE_ENABLED\s+value: "false"/, 'wr
 assertMatch(readOnly, /name: ACORNOPS_AGENT_LEADER_ELECTION_ENABLED\s+value: "false"/, 'leader election should default false');
 assertMatch(readOnly, /name: ACORNOPS_AGENT_K8S_CONCURRENCY\s+value: "8"/, 'k8s concurrency env should default 8');
 assertMatch(readOnly, /name: ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT\s+value: "500"/, 'k8s list page limit env should default 500');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_CACHE_ENABLED\s+value: "true"/, 'watch cache env should default true');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS\s+value: "5000"/, 'watch debounce env should default 5000');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS\s+value: "15000"/, 'watch sync timeout env should default 15000');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS\s+value: "300"/, 'watch timeout env should default 300');
 assertIncludes(readOnly, 'fieldPath: metadata.uid', 'deployment should inject pod UID for leader identity');
 assertExcludes(readOnly, 'verbs: ["patch", "update"]', 'default RBAC must not include write verbs');
 assertExcludes(readOnly, 'resources: ["leases"]', 'default install should not grant Lease RBAC');

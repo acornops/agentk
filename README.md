@@ -71,6 +71,10 @@ The agent is configured via environment variables:
 | `ACORNOPS_AGENT_KUBECONFIG_SKIP_TLS_VERIFY` | Skip TLS verification after loopback-host rewrite (local k3d convenience only) | `false` |
 | `ACORNOPS_AGENT_K8S_CONCURRENCY` | Process-wide maximum concurrent Kubernetes API list requests during snapshot collection | `8` |
 | `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` | Kubernetes API list page size used when collecting large snapshots | `500` |
+| `ACORNOPS_AGENT_WATCH_CACHE_ENABLED` | Build snapshots from a Kubernetes watch-backed local cache when ready | `true` |
+| `ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS` | Debounce window for snapshots triggered by watched resource or Warning event changes | `5000` |
+| `ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS` | Time to wait for watch cache warmup before using list fallback | `15000` |
+| `ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS` | Kubernetes watch stream timeout before clean reconnect | `300` |
 | `ACORNOPS_AGENT_WATCH_NAMESPACES` | Comma-separated list of namespaces to watch | All |
 | `ACORNOPS_AGENT_WRITE_ENABLED` | Set to `true` to enable mutation tools | `false` |
 | `ACORNOPS_AGENT_LOCAL_FALLBACK_ENABLED` | Emit local synthetic node/usage snapshot when Kubernetes API is unreachable (dev only) | `false` |
@@ -85,7 +89,9 @@ The agent is configured via environment variables:
 
 ## Snapshot Scalability
 
-Snapshots currently use bounded, paginated list calls rather than a watch cache. The agent should be comfortable on small clusters (`<2k` pods or `<10k` watched objects) and tunable on medium clusters (`2k-10k` pods or `10k-50k` watched objects). Large clusters (`10k+` pods or `50k+` watched objects) should plan for the watch/cache architecture.
+Snapshots are assembled from a Kubernetes watch-backed local cache by default. The agent still emits the existing compact `notify/snapshot` payload, but it keeps Pods, workloads, Services, Ingresses, PVCs, Nodes, Namespaces, and recent Warning Events fresh through list-then-watch streams instead of listing every resource on each interval.
+
+The list collectors remain the fallback path when the watch cache is disabled, warming, or unhealthy. Initial sync and 410-compaction recovery still use bounded, paginated list calls, so `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` continue to bound API pressure during warmup, scope changes, and watch recovery.
 
 Use `snapshot-manager` logs to track `durationMs`, `skippedSnapshots`, `droppedSnapshots`, `originalBytes`, and `compressedBytes`. If snapshots regularly skip interval ticks, increase the snapshot interval before raising `ACORNOPS_AGENT_K8S_CONCURRENCY`; higher concurrency can worsen API server pressure when list latency is already the bottleneck.
 

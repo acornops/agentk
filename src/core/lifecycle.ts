@@ -16,6 +16,11 @@ import { mcpRouter } from '../mcp/router.js';
 import { SnapshotManager } from './snapshot-manager.js';
 import { registerAllTools } from '../tools/index.js';
 import { getWatchNamespaces, NamespaceScope, setNamespaceScope } from '../runtime/namespace-scope.js';
+import { WatchStore } from './watch/watch-store.js';
+import { WatchManager } from './watch/watch-manager.js';
+import { ResourceCollector } from './collectors/resource-collector.js';
+import { MetricsCollector } from './collectors/metrics-collector.js';
+import { EventCollector } from './collectors/event-collector.js';
 
 const logger = pino({ level: config.ACORNOPS_AGENT_LOG_LEVEL }).child({ module: 'lifecycle' });
 const KUBERNETES_TARGET_TYPE = 'kubernetes' as const;
@@ -44,15 +49,28 @@ function normalizeIncomingData(data: Buffer | string | ArrayBuffer | Buffer[]): 
 export class LifecycleManager {
   private client: WebSocketClient;
   private snapshotManager: SnapshotManager;
+  private watchStore: WatchStore;
+  private watchManager: WatchManager;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private metricsApiAvailable = false;
   private running = false;
+  private sessionReady = false;
   private runtimeGeneration = 0;
 
   /** Initialize lifecycle orchestration and platform event handlers. */
   constructor() {
     this.client = new WebSocketClient(config.ACORNOPS_AGENT_PLATFORM_URL);
-    this.snapshotManager = new SnapshotManager((payload) => this.sendOutbound(payload));
+    this.watchStore = new WatchStore();
+    this.watchManager = new WatchManager(this.watchStore, () => this.snapshotManager.triggerSnapshot());
+    this.snapshotManager = new SnapshotManager(
+      (payload) => this.sendOutbound(payload),
+      undefined,
+      [
+        new ResourceCollector(this.watchStore),
+        new MetricsCollector(),
+        new EventCollector(this.watchStore),
+      ]
+    );
 
     registerAllTools();
 
@@ -70,6 +88,7 @@ export class LifecycleManager {
   public start(): void {
     if (this.running) return;
     this.running = true;
+    this.sessionReady = false;
     this.runtimeGeneration++;
     logger.info('Starting active agent runtime');
     this.client.connect();
@@ -79,9 +98,11 @@ export class LifecycleManager {
   public stop(): void {
     if (!this.running) return;
     this.running = false;
+    this.sessionReady = false;
     this.runtimeGeneration++;
     logger.info('Stopping active agent runtime');
     this.snapshotManager.stop();
+    this.watchManager.stop();
     this.stopHeartbeat();
     this.client.close();
   }
@@ -176,6 +197,7 @@ export class LifecycleManager {
   private handleHandshakeResponse(response: JsonRpcResponse): void {
     if (!this.running) return;
     if (response.error) {
+      this.sessionReady = false;
       logger.error({ error: response.error }, 'Handshake failed');
       this.client.forceReconnect();
       return;
@@ -205,6 +227,7 @@ export class LifecycleManager {
         },
         'Handshake response target scope mismatch'
       );
+      this.sessionReady = false;
       this.client.forceReconnect();
       return;
     }
@@ -219,6 +242,8 @@ export class LifecycleManager {
     this.client.markReady();
 
     if (!this.running) return;
+    this.sessionReady = true;
+    this.watchManager.start();
     this.snapshotManager.start(remoteConfig?.snapshotInterval || 60, remoteConfig?.maxSnapshotBytes);
     this.startHeartbeat();
   }
@@ -232,7 +257,8 @@ export class LifecycleManager {
     try {
       const scope = setNamespaceScope((request.params as { namespaceScope?: unknown } | undefined)?.namespaceScope || {});
       logger.info({ scope }, 'Updated namespace scope from control plane');
-      if (this.running) {
+      if (this.running && this.sessionReady) {
+        this.watchManager.restart();
         this.snapshotManager.triggerSnapshot();
       }
       return createResponse(request.id, {
@@ -247,7 +273,9 @@ export class LifecycleManager {
 
   private handleClose(): void {
     if (!this.running) return;
+    this.sessionReady = false;
     this.snapshotManager.stop();
+    this.watchManager.stop();
     this.stopHeartbeat();
   }
 

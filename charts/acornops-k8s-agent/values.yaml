@@ -50,6 +50,14 @@ config:
   k8sConcurrency: 8
   # Kubernetes API list page size used when collecting large snapshots.
   k8sListPageLimit: 500
+  # Whether the agent maintains a Kubernetes watch-backed cache for snapshots.
+  watchCacheEnabled: true
+  # Debounce window for snapshots triggered by watched resource changes.
+  watchSnapshotDebounceMs: 5000
+  # Maximum time to wait for watch cache warmup before list fallback is used.
+  watchCacheSyncTimeoutMs: 15000
+  # Kubernetes watch timeout; streams reconnect after this duration.
+  watchTimeoutSeconds: 300
   # When true, the agent serves a local fallback mode, allowing read-only tool
   # calls even when the control-plane WebSocket is disconnected.
   localFallbackEnabled: false

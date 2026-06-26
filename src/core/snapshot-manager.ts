@@ -33,11 +33,12 @@ export class SnapshotManager {
   /** Initialize snapshot collectors and the outbound snapshot callback. */
   constructor(
     onSnapshot: (payload: Buffer | string) => void,
-    gzipPayload: (buffer: Buffer) => Promise<Buffer> = gzipAsync
+    gzipPayload: (buffer: Buffer) => Promise<Buffer> = gzipAsync,
+    collectors?: Collector[]
   ) {
     this.onSnapshot = onSnapshot;
     this.gzipPayload = gzipPayload;
-    this.collectors = [
+    this.collectors = collectors || [
       new ResourceCollector(),
       new MetricsCollector(),
       new EventCollector(),

@@ -2,6 +2,8 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { ResourceCollector } from './resource-collector.js';
 import { k8sClient } from '../../k8s/client.js';
 import { setNamespaceScope } from '../../runtime/namespace-scope.js';
+import { WatchStore, WATCH_RESOURCE_KINDS } from '../watch/watch-store.js';
+import { config } from '../../config.js';
 
 vi.mock('../../k8s/client.js', () => ({
   k8sClient: {
@@ -42,6 +44,7 @@ vi.mock('../../k8s/client.js', () => ({
 describe('ResourceCollector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (config as any).ACORNOPS_AGENT_LOCAL_FALLBACK_ENABLED = false;
     setNamespaceScope({ include: [], exclude: [] });
   });
 
@@ -353,5 +356,113 @@ describe('ResourceCollector', () => {
       limit: 500,
       _continue: undefined,
     });
+  });
+
+  it('builds the same snapshot shape from a ready watch cache without listing', async () => {
+    const store = new WatchStore();
+    for (const kind of WATCH_RESOURCE_KINDS) {
+      store.replaceResourceKind(kind, [], '1');
+    }
+    store.replaceResourceKind('pods', [{
+      metadata: {
+        name: 'pod1',
+        namespace: 'default',
+        uid: 'uid1',
+        labels: { app: 'api' },
+        ownerReferences: [{ apiVersion: 'apps/v1', kind: 'ReplicaSet', name: 'api-7d9', uid: 'rs1', controller: true }]
+      },
+      spec: { nodeName: 'node1' },
+      status: { phase: 'Running', containerStatuses: [{ name: 'c1', ready: true, restartCount: 2, state: { waiting: { reason: 'CrashLoopBackOff' } }, lastState: {} }] }
+    }], '2');
+    store.replaceResourceKind('nodes', [{
+      metadata: { name: 'node1', uid: 'node-1', labels: { role: 'worker' } },
+      status: { nodeInfo: { kubeletVersion: 'v1.31.0' }, conditions: [{ type: 'Ready', status: 'True' }] }
+    }], '2');
+    store.replaceResourceKind('namespaces', [{ metadata: { name: 'default', uid: 'ns-1' }, status: { phase: 'Active' } }], '2');
+
+    const result = await new ResourceCollector(store).collect();
+
+    expect(k8sClient.core.listPodForAllNamespaces).not.toHaveBeenCalled();
+    expect(result.pods).toEqual([{
+      name: 'pod1',
+      namespace: 'default',
+      uid: 'uid1',
+      labels: { app: 'api' },
+      ownerReferences: [{ apiVersion: 'apps/v1', kind: 'ReplicaSet', name: 'api-7d9', uid: 'rs1', controller: true, blockOwnerDeletion: undefined }],
+      creationTimestamp: undefined,
+      phase: 'Running',
+      nodeName: 'node1',
+      restartCount: 2,
+      containerStatuses: [{ name: 'c1', ready: true, restartCount: 2, state: { waiting: { reason: 'CrashLoopBackOff' } }, lastState: {} }]
+    }]);
+    expect(result.nodes[0].name).toBe('node1');
+    expect(result.namespaces[0].name).toBe('default');
+  });
+
+  it('waits for a warming watch cache before using list fallback', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new WatchStore();
+      for (const kind of WATCH_RESOURCE_KINDS) {
+        store.markSyncing(kind);
+      }
+
+      const collect = new ResourceCollector(store).collect();
+      await Promise.resolve();
+      expect(k8sClient.core.listPodForAllNamespaces).not.toHaveBeenCalled();
+
+      for (const kind of WATCH_RESOURCE_KINDS) {
+        store.replaceResourceKind(kind, [], '1');
+      }
+      store.replaceResourceKind('pods', [{
+        metadata: { name: 'cached-pod', namespace: 'default' },
+        status: { phase: 'Running' },
+      }], '2');
+      await vi.advanceTimersByTimeAsync(100);
+
+      const result = await collect;
+      expect(result.pods.map((pod: any) => pod.name)).toEqual(['cached-pod']);
+      expect(k8sClient.core.listPodForAllNamespaces).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the local fallback node when a ready watch cache has no nodes in local mode', async () => {
+    (config as any).ACORNOPS_AGENT_LOCAL_FALLBACK_ENABLED = true;
+    const store = new WatchStore();
+    for (const kind of WATCH_RESOURCE_KINDS) {
+      store.replaceResourceKind(kind, [], '1');
+    }
+
+    const result = await new ResourceCollector(store).collect();
+
+    expect(k8sClient.core.listPodForAllNamespaces).not.toHaveBeenCalled();
+    expect(result.nodes).toEqual([expect.objectContaining({
+      uid: 'local-fallback-node',
+      kubeletVersion: 'local-dev',
+    })]);
+  });
+
+  it('falls back to list collection while the watch cache is not fully synced', async () => {
+    const store = new WatchStore();
+    store.replaceResourceKind('pods', [{ metadata: { name: 'cached-pod', namespace: 'default' } }], '1');
+    const empty = { items: [] };
+    (k8sClient.core.listPodForAllNamespaces as any).mockResolvedValue({ items: [{ metadata: { name: 'listed-pod', namespace: 'default' } }] });
+    (k8sClient.apps.listDeploymentForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.apps.listStatefulSetForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.apps.listDaemonSetForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.batch.listCronJobForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.batch.listJobForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.core.listServiceForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.networking.listIngressForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.core.listPersistentVolumeClaimForAllNamespaces as any).mockResolvedValue(empty);
+    (k8sClient.core.listNode as any).mockResolvedValue(empty);
+    (k8sClient.core.listNamespace as any).mockResolvedValue(empty);
+
+    const result = await new ResourceCollector(store).collect();
+
+    expect(result.pods.map((pod: any) => pod.name)).toEqual(['listed-pod']);
+    expect(k8sClient.core.listPodForAllNamespaces).toHaveBeenCalledTimes(1);
   });
 });

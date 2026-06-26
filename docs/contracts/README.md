@@ -24,6 +24,7 @@ Machine-readable contract data for this repo lives in `docs/contracts/manifest.j
 - Control plane is authoritative for `workspaceId`, `targetId`, `targetType`, snapshot interval, and builtin tool registration.
 - `supportedCapabilities` is the signal that drives write-tool availability across the platform. Advertising `write` when mutation is not actually safe is a contract violation.
 - Snapshots are sent as gzipped JSON-RPC notifications and later surfaced to the management console through the control plane.
+- Kubernetes resource snapshots may be assembled from a watch-backed local cache, but `notify/snapshot` remains the authoritative control-plane contract. The agent must fall back to list collection when the watch cache is disabled, warming, or unhealthy.
 - Any breaking change here must update this file and the mirrored control-plane contract doc in the same change.
 
 ## Control-Plane WebSocket Contract
@@ -99,6 +100,7 @@ Snapshot upload:
   - `data.events`
 
 The wire payload remains a gzipped JSON-RPC notification. Snapshot collection is non-overlapping: interval ticks are skipped while a collection is in flight, and at most one manual or startup snapshot is coalesced to run after the active collection finishes.
+The agent maintains a watch-backed Kubernetes resource cache by default and may trigger debounced snapshots after watched resource or Warning event changes. Interval snapshots remain the reconciliation boundary, and list-based collection remains the fallback path.
 
 Current snapshot branches and key fields the rest of the platform depends on:
 
