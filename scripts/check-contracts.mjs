@@ -37,10 +37,10 @@ const controlPlaneContract = manifest.counterparts?.['control-plane'];
 
 expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)', 'README contract link');
 expectIncludes(readme, '[`docs/contracts/manifest.json`](docs/contracts/manifest.json)', 'README manifest link');
-expect(manifest.repo === 'k8s-agent', 'Manifest repo');
+expect(manifest.repo === 'agentk', 'Manifest repo');
 
 for (const heading of [
-  '# K8s-Agent Contracts',
+  '# AgentK Contracts',
   '## Full Platform Matrix',
   '## Platform Dependency Summary',
   '## Control-Plane WebSocket Contract'

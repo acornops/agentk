@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   # Container image repository for the agent.
-  repository: ghcr.io/acornops/k8s-agent
+  repository: ghcr.io/acornops/agentk
   # Image tag to deploy. Defaults to the chart's appVersion when left empty.
   tag: ""
   # Kubernetes image pull policy: Always | IfNotPresent | Never.

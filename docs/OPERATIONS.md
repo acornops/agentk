@@ -1,4 +1,4 @@
-# K8s Agent Operations
+# AgentK Operations
 
 ## Runtime Contract
 
@@ -20,7 +20,7 @@
 Install into a workload cluster:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \

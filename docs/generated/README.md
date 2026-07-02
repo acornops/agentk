@@ -1,4 +1,4 @@
-# K8s Agent Generated Artifacts
+# AgentK Generated Artifacts
 
 This directory is reserved for machine-generated reference material that agents should be able to inspect in-repo.
 

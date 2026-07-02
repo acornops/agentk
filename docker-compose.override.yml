@@ -1,10 +1,10 @@
 services:
-  acornops-k8s-agent:
+  acornops-agentk:
     build:
       context: .
       dockerfile: Dockerfile
       target: dev
-    image: acornops/k8s-agent:local
+    image: acornops/agentk:local
     command: ["npm", "run", "dev"]
     environment:
       ACORNOPS_AGENT_PLATFORM_URL: ws://mock-platform:3000/agent
@@ -23,7 +23,7 @@ services:
         condition: service_started
     volumes:
       - ./:/app
-      - k8s-agent-node-modules:/app/node_modules
+      - agentk-node-modules:/app/node_modules
       - ${HOME}/.kube:/root/.kube:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -48,5 +48,5 @@ networks:
     name: acornops-net
 
 volumes:
-  k8s-agent-node-modules:
+  agentk-node-modules:
   mock-platform-node-modules:

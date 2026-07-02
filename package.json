@@ -1,5 +1,5 @@
 {
-  "name": "acornops-k8s-agent",
+  "name": "acornops-agentk",
   "version": "0.0.1-experimental.2",
   "description": "AcornOps Kubernetes workload-cluster agent.",
   "type": "module",
@@ -10,7 +10,7 @@
     "build": "tsc",
     "contracts:check": "node scripts/check-contracts.mjs",
     "harness:check": "node scripts/check-harness.mjs",
-    "helm:check": "helm lint charts/acornops-k8s-agent --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key && node scripts/check-helm-chart.mjs",
+    "helm:check": "helm lint charts/acornops-agentk --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key && node scripts/check-helm-chart.mjs",
     "validate": "npm run lint && npm run test && npm run contracts:check && npm run harness:check && npm run helm:check && npm run build",
     "validate:ci": "npm run lint && npm run contracts:check && npm run harness:check && npm run build",
     "test": "vitest run --exclude src/e2e.spec.ts",

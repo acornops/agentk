@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 
-const chart = 'charts/acornops-k8s-agent';
+const chart = 'charts/acornops-agentk';
 
 function helmTemplate(args = []) {
   const result = spawnSync('helm', ['template', 'acornops-agent', chart, '--namespace', 'acornops', ...args], {

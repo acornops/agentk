@@ -10,9 +10,9 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: acornops/k8s-agent
-  CHART_NAME: acornops-k8s-agent
-  CHART_DIR: charts/acornops-k8s-agent
+  IMAGE_NAME: acornops/agentk
+  CHART_NAME: acornops-agentk
+  CHART_DIR: charts/acornops-agentk
 
 jobs:
   validate:
@@ -80,12 +80,12 @@ jobs:
       - name: Create k3d cluster
         run: k3d cluster create chart-smoke --no-lb --wait
       - name: Build local agent image
-        run: docker build -t ghcr.io/acornops/k8s-agent:ci .
+        run: docker build -t ghcr.io/acornops/agentk:ci .
       - name: Load local agent image
-        run: k3d image import ghcr.io/acornops/k8s-agent:ci -c chart-smoke
+        run: k3d image import ghcr.io/acornops/agentk:ci -c chart-smoke
       - name: Install chart with non-routable websocket endpoint
         run: |
-          helm upgrade --install acornops-agent charts/acornops-k8s-agent \
+          helm upgrade --install acornops-agent charts/acornops-agentk \
             --namespace acornops --create-namespace \
             --set-string image.tag=ci \
             --set image.pullPolicy=IfNotPresent \

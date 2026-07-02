@@ -112,7 +112,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Lint Helm chart
-        run: helm lint charts/acornops-k8s-agent --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key
+        run: helm lint charts/acornops-agentk --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key
       - name: Check Helm templates
         run: node scripts/check-helm-chart.mjs
 
@@ -134,14 +134,14 @@ jobs:
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: k8s-agent-coverage
+          name: agentk-coverage
           path: coverage
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/lcov.info
-          flags: k8s-agent
+          flags: agentk
           fail_ci_if_error: false
 
   e2e-tests:
@@ -181,12 +181,12 @@ jobs:
       - name: Create k3d cluster
         run: k3d cluster create chart-smoke --no-lb --wait
       - name: Build local agent image
-        run: docker build -t ghcr.io/acornops/k8s-agent:ci .
+        run: docker build -t ghcr.io/acornops/agentk:ci .
       - name: Load local agent image
-        run: k3d image import ghcr.io/acornops/k8s-agent:ci -c chart-smoke
+        run: k3d image import ghcr.io/acornops/agentk:ci -c chart-smoke
       - name: Install chart
         run: |
-          helm upgrade --install acornops-agent charts/acornops-k8s-agent \
+          helm upgrade --install acornops-agent charts/acornops-agentk \
             --namespace acornops --create-namespace \
             --set-string image.tag=ci \
             --set image.pullPolicy=IfNotPresent \

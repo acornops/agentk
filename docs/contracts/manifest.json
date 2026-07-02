@@ -1,5 +1,5 @@
 {
-  "repo": "k8s-agent",
+  "repo": "agentk",
   "version": 1,
   "runtimeDependencies": ["control-plane"],
   "counterparts": {

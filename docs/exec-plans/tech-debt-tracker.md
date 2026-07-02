@@ -1,4 +1,4 @@
-# K8s Agent Tech Debt Tracker
+# AgentK Tech Debt Tracker
 
 | Item | Impact | Next Action | Status |
 | --- | --- | --- | --- |

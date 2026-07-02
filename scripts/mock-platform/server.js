@@ -129,7 +129,7 @@ app.post('/send-command', (req, res) => {
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'k8s-agent-mock-platform',
+    service: 'agentk-mock-platform',
     websocketConnected: !!activeAgent && activeAgent.readyState === WebSocket.OPEN
   });
 });
@@ -145,7 +145,7 @@ app.get('/connections', (_req, res) => {
 const openApi = {
   openapi: '3.1.0',
   info: {
-    title: 'K8s Agent Local Mock Platform API',
+    title: 'AgentK Local Mock Platform API',
     version: '0.0.1-experimental.1',
     description: 'Local developer endpoints used to inspect agent connectivity and send JSON-RPC commands to the agent.'
   },
@@ -225,7 +225,7 @@ app.get(['/docs', '/docs/'], (_req, res) => {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>K8s Agent Mock Platform API Docs</title>
+    <title>AgentK Mock Platform API Docs</title>
     <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.20.2/swagger-ui.css" />
   </head>
   <body>

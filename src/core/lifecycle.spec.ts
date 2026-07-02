@@ -148,7 +148,7 @@ describe('LifecycleManager', () => {
       params: {
         targetId: 'cluster-1',
         targetType: 'kubernetes',
-        agentType: 'k8s_agent',
+        agentType: 'agentk',
         agentKey: 'agent-key',
         version: '1.2.3',
         agentVersion: '1.2.3',

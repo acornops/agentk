@@ -1,6 +1,6 @@
-# K8s Agent Design Overview
+# AgentK Design Overview
 
-The k8s-agent is the outbound-only cluster edge that connects to the control plane, uploads snapshots, and executes JSON-RPC tool calls with explicit write gating.
+The agentk is the outbound-only cluster edge that connects to the control plane, uploads snapshots, and executes JSON-RPC tool calls with explicit write gating.
 
 Primary design sources:
 

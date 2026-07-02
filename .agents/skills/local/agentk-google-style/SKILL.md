@@ -1,6 +1,6 @@
 ---
-name: acornops-k8s-agent-google-style
-description: Apply Google TypeScript/JavaScript style guidance to k8s-agent runtime and tool code. Use when editing websocket lifecycle, Kubernetes client integration, snapshot collection, or tool execution modules.
+name: acornops-agentk-google-style
+description: Apply Google TypeScript/JavaScript style guidance to agentk runtime and tool code. Use when editing websocket lifecycle, Kubernetes client integration, snapshot collection, or tool execution modules.
 ---
 
 # Inputs

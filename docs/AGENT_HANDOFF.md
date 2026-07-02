@@ -4,7 +4,7 @@ This repository follows the AcornOps vendor-neutral handoff policy.
 
 ## Before Handoff
 
-Run `npm run validate` before handing off k8s-agent changes. Also run targeted
+Run `npm run validate` before handing off agentk changes. Also run targeted
 unit, e2e, Helm, contract, or platform checks when the change touches behavior
 covered by those checks.
 

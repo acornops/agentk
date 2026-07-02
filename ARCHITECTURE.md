@@ -1,4 +1,4 @@
-# K8s Agent Architecture
+# AgentK Architecture
 
 The cluster agent is the cluster-resident execution edge for:
 
@@ -13,7 +13,7 @@ The cluster agent is the cluster-resident execution edge for:
 ```mermaid
 flowchart LR
     CP[control-plane websocket endpoint]
-    Agent[K8s Agent]
+    Agent[AgentK]
     K8s[Kubernetes API]
     Tools[Built-in tools / MCP router]
     Snapshots[Snapshot pipeline]

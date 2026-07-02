@@ -1,14 +1,14 @@
-# Legacy/manual manifest. Prefer the Helm chart in charts/acornops-k8s-agent for release installs.
+# Legacy/manual manifest. Prefer the Helm chart in charts/acornops-agentk for release installs.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: acornops-k8s-agent
+  name: acornops-agentk
   namespace: acornops
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: acornops-k8s-agent-role
+  name: acornops-agentk-role
 rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log", "services", "persistentvolumeclaims", "events", "nodes", "namespaces"]
@@ -32,20 +32,20 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: acornops-k8s-agent-binding
+  name: acornops-agentk-binding
 subjects:
   - kind: ServiceAccount
-    name: acornops-k8s-agent
+    name: acornops-agentk
     namespace: acornops
 roleRef:
   kind: ClusterRole
-  name: acornops-k8s-agent-role
+  name: acornops-agentk-role
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: acornops-k8s-agent-leader-election
+  name: acornops-agentk-leader-election
   namespace: acornops
 rules:
   - apiGroups: ["coordination.k8s.io"]
@@ -55,13 +55,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: acornops-k8s-agent-leader-election
+  name: acornops-agentk-leader-election
   namespace: acornops
 subjects:
   - kind: ServiceAccount
-    name: acornops-k8s-agent
+    name: acornops-agentk
     namespace: acornops
 roleRef:
   kind: Role
-  name: acornops-k8s-agent-leader-election
+  name: acornops-agentk-leader-election
   apiGroup: rbac.authorization.k8s.io

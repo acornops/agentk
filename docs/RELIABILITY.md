@@ -1,4 +1,4 @@
-# K8s Agent Reliability
+# AgentK Reliability
 
 ## Failure Modes
 

@@ -1,4 +1,4 @@
-# K8s Agent Google Style Workflow
+# AgentK Google Style Workflow
 
 1. Review changed files in runtime, transport, and tool layers.
 2. Ensure command-handling paths remain explicit and easy to audit.

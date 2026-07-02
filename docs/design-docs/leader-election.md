@@ -67,7 +67,7 @@ The runtime is built around one active process instance:
 - `src/core/lifecycle.ts` starts the WebSocket client, handshake, snapshot pipeline, and heartbeat loop in one always-on runtime.
 - `src/transport/websocket-client.ts` owns reconnect behavior and reconnects until the runtime stops.
 - `src/core/snapshot-manager.ts` starts periodic cluster-wide snapshot collection once the handshake succeeds.
-- `charts/acornops-k8s-agent/values.yaml` explicitly says the chart does not support active-active HA and defaults `replicaCount` to `1`.
+- `charts/acornops-agentk/values.yaml` explicitly says the chart does not support active-active HA and defaults `replicaCount` to `1`.
 
 Active-passive mode adds:
 
@@ -317,9 +317,9 @@ The exact values can be tuned during implementation, but the chart must document
 
 Update:
 
-- `charts/acornops-k8s-agent/values.yaml`
-- `charts/acornops-k8s-agent/values.schema.json`
-- `charts/acornops-k8s-agent/templates/deployment.yaml`
+- `charts/acornops-agentk/values.yaml`
+- `charts/acornops-agentk/values.schema.json`
+- `charts/acornops-agentk/templates/deployment.yaml`
 - chart README if install instructions change
 
 Deployment template changes should include:
@@ -578,9 +578,9 @@ Primary files in this repository:
 - `src/transport/websocket-client.ts`
 - `src/core/snapshot-manager.ts`
 - `src/runtime/leader-election.ts`
-- `charts/acornops-k8s-agent/values.yaml`
-- `charts/acornops-k8s-agent/values.schema.json`
-- `charts/acornops-k8s-agent/templates/deployment.yaml`
+- `charts/acornops-agentk/values.yaml`
+- `charts/acornops-agentk/values.schema.json`
+- `charts/acornops-agentk/templates/deployment.yaml`
 - RBAC templates/manifests for Lease access
 - `deploy/` manifests for manual troubleshooting
 - `docs/contracts/README.md` and `docs/contracts/manifest.json` if protocol changes are required

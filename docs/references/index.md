@@ -1,4 +1,4 @@
-# K8s Agent References
+# AgentK References
 
 Use these references as supporting material. The source of truth remains repository-local code and docs.
 

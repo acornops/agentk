@@ -1,11 +1,11 @@
 # Manual Manifests
 
-The raw manifests in this directory are available for manual development and troubleshooting. The supported install path is the Helm chart in `charts/acornops-k8s-agent`.
+The raw manifests in this directory are available for manual development and troubleshooting. The supported install path is the Helm chart in `charts/acornops-agentk`.
 
 Use Helm for production or public installs:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \

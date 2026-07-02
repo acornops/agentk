@@ -1,4 +1,4 @@
-# K8s Agent Development
+# AgentK Development
 
 ## Scope
 

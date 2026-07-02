@@ -151,7 +151,7 @@ export class LifecycleManager {
     const handshake = createRequest('lifecycle/handshake', {
       targetId: config.TARGET_ID,
       targetType: KUBERNETES_TARGET_TYPE,
-      agentType: 'k8s_agent',
+      agentType: 'agentk',
       agentKey: config.ACORNOPS_AGENT_KEY,
       version: config.AGENT_VERSION,
       agentVersion: config.AGENT_VERSION,

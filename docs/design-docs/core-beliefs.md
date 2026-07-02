@@ -1,4 +1,4 @@
-# K8s Agent Core Beliefs
+# AgentK Core Beliefs
 
 - The agent is outbound-only and stateless by default.
 - Capability advertising is a contract, not a hint.

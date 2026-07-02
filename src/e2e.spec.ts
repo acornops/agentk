@@ -98,7 +98,7 @@ describe('E2E Agent Lifecycle', () => {
     expect(handshakeRequest.parsed?.params).toMatchObject({
       targetId: process.env.ACORNOPS_CLUSTER_ID,
       targetType: 'kubernetes',
-      agentType: 'k8s_agent',
+      agentType: 'agentk',
       agentKey: process.env.ACORNOPS_AGENT_KEY,
     });
 

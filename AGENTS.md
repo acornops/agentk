@@ -1,4 +1,4 @@
-# K8s Agent Entry Point
+# AgentK Entry Point
 
 Use this file as a map, not as the full source of truth. The repository knowledge base lives in the linked docs.
 

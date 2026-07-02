@@ -1,4 +1,4 @@
-# K8s-Agent Contracts
+# AgentK Contracts
 
 This repo has one direct platform contract: the control-plane WebSocket and JSON-RPC protocol. The agent does not talk directly to the management console, execution-engine, or llm-gateway.
 Machine-readable contract data for this repo lives in `docs/contracts/manifest.json` and is checked alongside this document.
@@ -8,7 +8,7 @@ Machine-readable contract data for this repo lives in `docs/contracts/manifest.j
 - Management console -> control plane
 - Control plane <-> execution-engine
 - Control plane <-> llm-gateway
-- Control plane <-> k8s-agent
+- Control plane <-> agentk
 - Execution-engine -> llm-gateway
 
 ## Platform Dependency Summary

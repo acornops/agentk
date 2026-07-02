@@ -64,7 +64,7 @@ const readme = read('README.md');
 const packageJson = JSON.parse(read('package.json'));
 const ciWorkflow = read('.github/workflows/ci.yml');
 const releaseWorkflow = read('.github/workflows/release.yml');
-const chartValues = read('charts/acornops-k8s-agent/values.yaml');
+const chartValues = read('charts/acornops-agentk/values.yaml');
 
 expect(agents.split('\n').length <= 140, 'AGENTS.md should stay short enough to serve as a table of contents');
 expect(!agents.includes('/Users/'), 'AGENTS.md should use portable relative links, not workstation-specific absolute paths');
@@ -72,16 +72,16 @@ expectIncludes(agents, '.agents/skills/shared', 'AGENTS shared skills guidance')
 expectIncludes(agents, '.agents/skills/local', 'AGENTS local skills guidance');
 expectIncludes(agents, 'docs/AGENT_HANDOFF.md', 'AGENTS handoff guidance');
 expectIncludes(agents, 'Docs impact: none', 'AGENTS docs impact guidance');
-expect(packageJson.name === 'acornops-k8s-agent', 'package.json name should identify the Kubernetes agent package');
+expect(packageJson.name === 'acornops-agentk', 'package.json name should identify the Kubernetes agent package');
 expect(packageJson.version === '0.0.1-experimental.2', 'package.json version should match the current experimental component version');
 expect(Boolean(packageJson.scripts?.validate), 'package.json should expose a canonical validate script');
 expectIncludes(packageJson.scripts.validate, 'npm run test', 'Canonical validate script');
 expectIncludes(packageJson.scripts.validate, 'npm run contracts:check', 'Canonical validate script');
 expectIncludes(packageJson.scripts.validate, 'npm run harness:check', 'Canonical validate script');
-expectIncludes(chartValues, 'repository: ghcr.io/acornops/k8s-agent', 'Agent chart image repository');
+expectIncludes(chartValues, 'repository: ghcr.io/acornops/agentk', 'Agent chart image repository');
 expectIncludes(
   ciWorkflow,
-  'helm lint charts/acornops-k8s-agent --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key',
+  'helm lint charts/acornops-agentk --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key',
   'CI Helm lint required chart values'
 );
 expectIncludes(
@@ -89,7 +89,7 @@ expectIncludes(
   '--set-string config.clusterId=cluster-smoke',
   'CI Helm smoke required chart values'
 );
-expectIncludes(releaseWorkflow, 'IMAGE_NAME: acornops/k8s-agent', 'Release workflow image name');
+expectIncludes(releaseWorkflow, 'IMAGE_NAME: acornops/agentk', 'Release workflow image name');
 expectIncludes(releaseWorkflow, 'provenance: true', 'Release workflow provenance');
 expectIncludes(releaseWorkflow, 'sbom: true', 'Release workflow SBOM');
 expect(!releaseWorkflow.includes(':latest'), 'Release workflow must not publish mutable latest tags');

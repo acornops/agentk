@@ -1,4 +1,4 @@
-# K8s Agent Component Charter
+# AgentK Component Charter
 
 ## Responsibilities
 

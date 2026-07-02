@@ -1,4 +1,4 @@
-# K8s Agent Plans
+# AgentK Plans
 
 Execution plans are first-class repository artifacts for work that spans multiple steps, decisions, or validation loops.
 

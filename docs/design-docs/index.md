@@ -1,4 +1,4 @@
-# K8s Agent Design Index
+# AgentK Design Index
 
 | Document | Status | Scope | Verification |
 | --- | --- | --- | --- |

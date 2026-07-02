@@ -1,4 +1,4 @@
-# K8s Agent Security Model
+# AgentK Security Model
 
 ## Trust Boundaries
 

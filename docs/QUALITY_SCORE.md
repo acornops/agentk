@@ -1,4 +1,4 @@
-# K8s Agent Quality Score
+# AgentK Quality Score
 
 Assessment date: April 10, 2026.
 

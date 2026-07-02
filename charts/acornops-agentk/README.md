@@ -5,7 +5,7 @@ This chart installs the AcornOps Kubernetes agent. It is the canonical release i
 ## Quick Start
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -18,7 +18,7 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s
 Use `config.websocketUrl` only when the WebSocket endpoint is not derived from the platform base URL:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.websocketUrl=wss://agent.example.com/custom-agent-path \
@@ -32,7 +32,7 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s
 kubectl -n acornops create secret generic acornops-agent-key \
   --from-literal=agent-key=YOUR_AGENT_KEY
 
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -50,7 +50,7 @@ Snapshot collection is bounded by `config.k8sConcurrency` and paginated with `co
 Enable write tools explicitly:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -62,7 +62,7 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s
 Namespace-scoped install:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -81,7 +81,7 @@ The agent supports active-passive HA with Kubernetes Lease leader election. It d
 The chart defaults to `replicaCount=1` and `leaderElection.enabled=false`. This is intentional: a single replica is the simplest least-privilege default, and HA requires namespaced Lease write permissions. For HA, `replicaCount=2` is typically the pragmatic default because it gives one active pod and one warm standby. `replicaCount=3` is useful when operators want two warm standbys or stronger scheduling spread, but Kubernetes Lease election does not require an odd number of agent replicas.
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \

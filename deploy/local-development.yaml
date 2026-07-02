@@ -1,22 +1,22 @@
-# Legacy/manual manifest for local development. Prefer the Helm chart in charts/acornops-k8s-agent for release installs.
+# Legacy/manual manifest for local development. Prefer the Helm chart in charts/acornops-agentk for release installs.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: acornops-k8s-agent
+  name: acornops-agentk
   namespace: acornops
   labels:
-    app: acornops-k8s-agent
+    app: acornops-agentk
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: acornops-k8s-agent
+      app: acornops-agentk
   template:
     metadata:
       labels:
-        app: acornops-k8s-agent
+        app: acornops-agentk
     spec:
-      serviceAccountName: acornops-k8s-agent
+      serviceAccountName: acornops-agentk
       containers:
         - name: agent
           image: acornops/agent:local
@@ -29,7 +29,7 @@ spec:
             - name: ACORNOPS_AGENT_KEY
               valueFrom:
                 secretKeyRef:
-                  name: acornops-k8s-agent-secret
+                  name: acornops-agentk-secret
                   key: agent-key
             - name: ACORNOPS_AGENT_WRITE_ENABLED
               value: "true"

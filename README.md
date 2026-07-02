@@ -5,8 +5,8 @@
 <h1 align="center">AcornOps Agent</h1>
 
 <p align="center">
-  <a href="https://github.com/acornops/k8s-agent/actions/workflows/ci.yml"><img src="https://github.com/acornops/k8s-agent/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://codecov.io/gh/acornops/k8s-agent"><img src="https://codecov.io/gh/acornops/k8s-agent/branch/main/graph/badge.svg" alt="Coverage" /></a>
+  <a href="https://github.com/acornops/agentk/actions/workflows/ci.yml"><img src="https://github.com/acornops/agentk/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://codecov.io/gh/acornops/agentk"><img src="https://codecov.io/gh/acornops/agentk/branch/main/graph/badge.svg" alt="Coverage" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-20-green.svg" alt="Node 20" /></a>
   <a href="docs/contracts/README.md"><img src="https://img.shields.io/badge/contracts-checked-blue.svg" alt="Contracts checked" /></a>
 </p>
@@ -21,7 +21,7 @@ This repository owns the Kubernetes agent code, chart, production image, protoco
 
 ## Agent-Assisted Development
 
-This repository supports human and agent-assisted development. Start coding agents from this repository root for k8s-agent-only work, and from the `acornops-workspace` root for changes that touch multiple AcornOps repositories.
+This repository supports human and agent-assisted development. Start coding agents from this repository root for agentk-only work, and from the `acornops-workspace` root for changes that touch multiple AcornOps repositories.
 
 ## Contracts
 
@@ -99,12 +99,12 @@ Use `snapshot-manager` logs to track `durationMs`, `skippedSnapshots`, `droppedS
 
 ### Helm (Recommended)
 
-The supported release install path is the `acornops-k8s-agent` Helm chart. This is the right install method whether the central AcornOps platform runs on Docker-on-VM or Kubernetes.
+The supported release install path is the `acornops-agentk` Helm chart. This is the right install method whether the central AcornOps platform runs on Docker-on-VM or Kubernetes.
 
 Install with the public platform base URL:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -117,7 +117,7 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s
 If your WebSocket route is custom, pass it directly:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.websocketUrl=wss://api.acornops.dev/api/v1/agent/connect \
@@ -131,7 +131,7 @@ Use an existing Kubernetes Secret instead of passing the key in Helm values:
 kubectl -n acornops create secret generic acornops-agent-key \
   --from-literal=agent-key=YOUR_AGENT_KEY
 
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -143,7 +143,7 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s
 The chart defaults to cluster-wide read-only RBAC. Write tools require an explicit opt-in:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -155,7 +155,7 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s
 For namespace-scoped installs, create Roles only in the watched namespaces:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -170,7 +170,7 @@ When `rbac.scope=namespace`, the chart creates Roles in `rbac.namespaces` when s
 Active-passive HA is opt-in. Multiple replicas are rejected unless leader election is enabled, because the agent is not active-active safe. In HA mode, only the elected Lease holder connects to the control plane, sends snapshots/heartbeats, and serves tool calls:
 
 ```bash
-helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-k8s-agent \
+helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-agentk \
   --namespace acornops \
   --create-namespace \
   --set-string config.platformUrl=https://api.acornops.dev \
@@ -222,7 +222,7 @@ If you have a Kubernetes cluster already running and configured in your `KUBECON
 
 Compose files are split as:
 
-- `docker-compose.yml`: base/default runtime for `acornops-k8s-agent`.
+- `docker-compose.yml`: base/default runtime for `acornops-agentk`.
 - `docker-compose.override.yml`: local development additions (`mock-platform`, host mounts, host ports, local image build).
 
 ### Run Modes
@@ -270,7 +270,7 @@ The local mock platform provides:
 - **Swagger UI (Mock Platform)**: `http://localhost:3000/docs`
 - **OpenAPI JSON (Mock Platform)**: `http://localhost:3000/openapi.json`
 
-The `acornops-k8s-agent` process itself is not an HTTP API server; it is a websocket JSON-RPC client. For local developer docs/testing, use the mock platform HTTP API above.
+The `acornops-agentk` process itself is not an HTTP API server; it is a websocket JSON-RPC client. For local developer docs/testing, use the mock platform HTTP API above.
 
 ### Local k3d Testing Guide
 
@@ -309,7 +309,7 @@ kubectl create namespace acornops
 
 Create a dummy secret for testing:
 ```bash
-kubectl create secret generic acornops-k8s-agent-secret \
+kubectl create secret generic acornops-agentk-secret \
   --from-literal=agent-key=test-agent-key-123 \
   -n acornops
 ```
@@ -343,7 +343,7 @@ curl -X POST http://localhost:3000/send-command \
   -d '{
     "method": "get_pod_logs",
     "params": {
-      "podName": "acornops-k8s-agent-xxxxxxxxxx-xxxxx",
+      "podName": "acornops-agentk-xxxxxxxxxx-xxxxx",
       "namespace": "acornops"
     }
   }'
@@ -352,12 +352,12 @@ curl -X POST http://localhost:3000/send-command \
 #### Inspect Runtime
 Check if the pod is running:
 ```bash
-kubectl get pods -n acornops -l app=acornops-k8s-agent
+kubectl get pods -n acornops -l app=acornops-agentk
 ```
 
 Check the agent logs:
 ```bash
-kubectl logs -f -n acornops -l app=acornops-k8s-agent
+kubectl logs -f -n acornops -l app=acornops-agentk
 ```
 
 #### Cleanup Cluster

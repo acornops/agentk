@@ -1,6 +1,6 @@
 ---
 name: acornops-k8s-safety
-description: Enforce cluster safety for k8s-agent changes involving RBAC, tool execution, websocket lifecycle, and snapshot collection. Use when modifying manifests, tool handlers, transport logic, or write-gated operations.
+description: Enforce cluster safety for agentk changes involving RBAC, tool execution, websocket lifecycle, and snapshot collection. Use when modifying manifests, tool handlers, transport logic, or write-gated operations.
 ---
 
 # Inputs
