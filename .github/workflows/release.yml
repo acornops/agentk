@@ -165,3 +165,24 @@ jobs:
 
       - name: Push chart
         run: helm push "${CHART_NAME}-${{ steps.version.outputs.version }}.tgz" oci://${{ env.REGISTRY }}/acornops/charts
+
+      - name: Create charts repo token
+        id: charts-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.CHART_PUBLISHER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CHART_PUBLISHER_APP_PRIVATE_KEY }}
+          owner: acornops
+          repositories: charts
+          permission-contents: write
+
+      - name: Notify charts repo
+        env:
+          GH_TOKEN: ${{ steps.charts-token.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh api repos/acornops/charts/dispatches \
+            --method POST \
+            --field event_type=helm-chart-released \
+            --field client_payload[chart]=acornops-agentk \
+            --field client_payload[version]="$VERSION"
