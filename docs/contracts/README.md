@@ -55,6 +55,8 @@ Handshake request:
   - `clusterFeatures.metricsApiAvailable`
   - `clusterFeatures.rbacMode`
 
+`agentType` is exactly `agentk`; the legacy `k8s_agent` value is not supported.
+
 Handshake success response must include:
 
 - `workspaceId`

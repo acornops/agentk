@@ -38,6 +38,11 @@ const controlPlaneContract = manifest.counterparts?.['control-plane'];
 expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)', 'README contract link');
 expectIncludes(readme, '[`docs/contracts/manifest.json`](docs/contracts/manifest.json)', 'README manifest link');
 expect(manifest.repo === 'agentk', 'Manifest repo');
+expect(
+  JSON.stringify(controlPlaneContract?.agentTypeValues) === JSON.stringify(['agentk']),
+  'Control-plane contract should expose only the canonical agentType value'
+);
+expectIncludes(lifecycle, "agentType: 'agentk'", 'Canonical agentType implementation');
 
 for (const heading of [
   '# AgentK Contracts',

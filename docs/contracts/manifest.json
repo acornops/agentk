@@ -6,6 +6,7 @@
     "control-plane": {
       "websocketPaths": ["/api/v1/agent/connect", "/agent/v1/connect"],
       "agentHeaders": ["x-agent-key", "x-agent-version"],
+      "agentTypeValues": ["agentk"],
       "handshakeRequestFields": [
         "agentKey",
         "version",
