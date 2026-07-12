@@ -59,6 +59,21 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["patch"]
+  {{- if has "CronJob" .Values.patchPolicy.kinds }}
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["patch"]
+  {{- end }}
+  {{- if has "Service" .Values.patchPolicy.kinds }}
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["patch"]
+  {{- end }}
+  {{- if has "Ingress" .Values.patchPolicy.kinds }}
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["patch"]
+  {{- end }}
   {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -111,6 +126,21 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["patch"]
+  {{- if has "CronJob" $root.Values.patchPolicy.kinds }}
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["patch"]
+  {{- end }}
+  {{- if has "Service" $root.Values.patchPolicy.kinds }}
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["patch"]
+  {{- end }}
+  {{- if has "Ingress" $root.Values.patchPolicy.kinds }}
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["patch"]
+  {{- end }}
   {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

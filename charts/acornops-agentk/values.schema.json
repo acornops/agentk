@@ -119,6 +119,22 @@
         }
       }
     },
+    "patchPolicy": {
+      "type": "object",
+      "properties": {
+        "kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["Deployment", "StatefulSet", "DaemonSet", "CronJob", "Service", "Ingress"]
+          }
+        },
+        "allowServiceSelectorChanges": { "type": "boolean" }
+      },
+      "required": ["kinds", "allowServiceSelectorChanges"]
+    },
     "topologySpreadConstraints": {
       "type": "array"
     },

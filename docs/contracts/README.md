@@ -85,7 +85,7 @@ Current control-plane-expected builtin tool names:
 - `get_resource_logs`
 - `restart_workload`
 - `scale_workload`
-- `simulate_patch`
+- `patch_resource`
 
 ### Agent -> control plane notifications
 
@@ -146,7 +146,7 @@ The control plane can issue:
 
 The tool implementation remains local to the agent, but the advertised schemas are consumed by control plane and then propagated to llm-gateway and execution-engine as part of the platform contract.
 
-`restart_workload` and `scale_workload` return minimal mutation receipts with
+`restart_workload`, `scale_workload`, and `patch_resource` return minimal mutation receipts with
 `operationId`, target identity, requested change, and observed resource version;
 they do not return full Kubernetes workload objects.
 The execution engine's tool call ID is preserved through llm-gateway and the

@@ -31,7 +31,7 @@ const getResource = read('src/tools/atomic/get-resource.ts');
 const getResourceLogs = read('src/tools/atomic/get-resource-logs.ts');
 const restartWorkload = read('src/tools/atomic/restart-workload.ts');
 const scaleWorkload = read('src/tools/atomic/scale.ts');
-const simulatePatch = read('src/tools/atomic/simulate-patch.ts');
+const patchResource = read('src/tools/atomic/patch-resource.ts');
 const manualDeployment = read('deploy/deployment.yaml');
 const manualRbac = read('deploy/rbac.yaml');
 const controlPlaneContract = manifest.counterparts?.['control-plane'];
@@ -93,7 +93,7 @@ for (const [source, toolName] of [
   [getResourceLogs, 'get_resource_logs'],
   [restartWorkload, 'restart_workload'],
   [scaleWorkload, 'scale_workload'],
-  [simulatePatch, 'simulate_patch']
+  [patchResource, 'patch_resource']
 ]) {
   expectIncludes(doc, toolName, 'Builtin tool doc');
   expectIncludes(source, `name: '${toolName}'`, 'Builtin tool implementation');

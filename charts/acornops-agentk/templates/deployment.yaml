@@ -78,6 +78,10 @@ spec:
               value: {{ .Values.config.scaleMaxReplicas | quote }}
             - name: ACORNOPS_AGENT_ALLOW_SCALE_TO_ZERO
               value: {{ .Values.config.allowScaleToZero | quote }}
+            - name: ACORNOPS_AGENT_PATCH_KINDS
+              value: {{ join "," .Values.patchPolicy.kinds | quote }}
+            - name: ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH
+              value: {{ .Values.patchPolicy.allowServiceSelectorChanges | quote }}
             - name: ACORNOPS_AGENT_RBAC_SCOPE
               value: {{ .Values.rbac.scope | quote }}
             - name: ACORNOPS_AGENT_WATCH_CACHE_ENABLED

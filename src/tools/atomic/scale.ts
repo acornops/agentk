@@ -5,7 +5,13 @@ import { k8sClient } from '../../k8s/client.js';
 import { ToolExecutionError } from '../errors.js';
 import { ToolDefinition, ToolExecutionContext } from '../registry.js';
 import { kubernetesNameSchema, namespaceSchema, reasonSchema } from '../schemas.js';
-import { checkNamespaceAllowed, checkWriteEnabled, getAnnotations } from '../utils.js';
+import {
+  checkNamespaceAllowed,
+  checkOperationNotAborted,
+  checkWriteEnabled,
+  getAnnotations,
+  operationAnnotationsMatch,
+} from '../utils.js';
 import { WriteReceipt } from '../write-receipt.js';
 
 const schema = z.object({
@@ -59,6 +65,7 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
 
   const operationId = context?.operationId || `direct-${Date.now()}`;
   const current = await readWorkload(params.kind, params.name, params.namespace);
+  checkOperationNotAborted(context, operationId);
   if (!current.metadata?.uid || !current.metadata?.resourceVersion) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Workload identity is incomplete');
   }
@@ -69,17 +76,25 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
   const operationHash = createHash('sha256').update(JSON.stringify(params)).digest('hex');
   const existingOperationId = current.metadata?.annotations?.['acornops.dev/operation-id'];
   if (existingOperationId === operationId) {
-    const existingHash = current.metadata?.annotations?.['acornops.dev/operation-hash'];
-    if (existingHash !== operationHash || previousReplicas !== params.replicas) {
+    if (!operationAnnotationsMatch(current.metadata?.annotations, operationId, operationHash, 'scale') ||
+        previousReplicas !== params.replicas) {
       throw new ToolExecutionError('PRECONDITION_FAILED', 'Operation ID was already used with different scale arguments');
     }
-    const recordedPrevious = Number(current.metadata?.annotations?.['acornops.dev/previous-replicas']);
+    const recordedPreviousValue = current.metadata?.annotations?.['acornops.dev/previous-replicas'];
+    const recordedPrevious = Number(recordedPreviousValue);
+    const recordedRequested = current.metadata?.annotations?.['acornops.dev/requested-replicas'];
+    const recordedHpaOverride = current.metadata?.annotations?.['acornops.dev/hpa-override'];
+    if (!Number.isInteger(recordedPrevious) || recordedPrevious < 0 || recordedPreviousValue !== String(recordedPrevious) ||
+        recordedRequested !== String(params.replicas) ||
+        !['true', 'false'].includes(recordedHpaOverride)) {
+      throw new ToolExecutionError('PRECONDITION_FAILED', 'Stored scale operation receipt is incomplete or inconsistent');
+    }
     return buildReceipt(
       params,
       current,
       operationId,
-      Number.isInteger(recordedPrevious) ? recordedPrevious : previousReplicas,
-      current.metadata?.annotations?.['acornops.dev/hpa-override'] === 'true'
+      recordedPrevious,
+      recordedHpaOverride === 'true'
     );
   }
   if (params.expected_current_replicas !== undefined && params.expected_current_replicas !== previousReplicas) {
@@ -90,6 +105,7 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
   }
 
   const hpas = await k8sClient.autoscaling.listNamespacedHorizontalPodAutoscaler({ namespace: params.namespace });
+  checkOperationNotAborted(context, operationId);
   const managedByHpa = (hpas.items || []).some((hpa: any) =>
     hpa.spec?.scaleTargetRef?.kind === params.kind && hpa.spec?.scaleTargetRef?.name === params.name
   );
@@ -111,8 +127,15 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
     { op: 'add', path: '/spec/replicas', value: params.replicas },
     { op: 'add', path: '/metadata/annotations', value: annotations },
   ]);
-  if (updated.metadata?.uid !== current.metadata.uid || !updated.metadata?.resourceVersion) {
-    throw new ToolExecutionError('PRECONDITION_FAILED', 'Patched workload identity is inconsistent');
+  if (updated.metadata?.uid !== current.metadata.uid || !updated.metadata?.resourceVersion ||
+      updated.metadata.resourceVersion === current.metadata.resourceVersion || updated.spec?.replicas !== params.replicas ||
+      !operationAnnotationsMatch(updated.metadata?.annotations, operationId, operationHash, 'scale') ||
+      updated.metadata?.annotations?.['acornops.dev/previous-replicas'] !== String(previousReplicas) ||
+      updated.metadata?.annotations?.['acornops.dev/requested-replicas'] !== String(params.replicas) ||
+      updated.metadata?.annotations?.['acornops.dev/hpa-override'] !== String(managedByHpa)) {
+    throw new ToolExecutionError('KUBERNETES_ERROR', 'Kubernetes accepted the scale but returned an inconsistent workload', {
+      outcome: 'unknown', operationId,
+    });
   }
   return buildReceipt(params, updated, operationId, previousReplicas, managedByHpa);
 }

@@ -72,6 +72,8 @@ assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_CACHE_ENABLED\s+value: "true"/
 assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS\s+value: "5000"/, 'watch debounce env should default 5000');
 assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS\s+value: "15000"/, 'watch sync timeout env should default 15000');
 assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS\s+value: "300"/, 'watch timeout env should default 300');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_PATCH_KINDS\s+value: "Deployment,StatefulSet,DaemonSet"/, 'patch kinds should default to existing workload RBAC');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH\s+value: "false"/, 'Service selector patching should default false');
 assertIncludes(readOnly, 'fieldPath: metadata.uid', 'deployment should inject pod UID for leader identity');
 assertExcludes(readOnly, 'verbs: ["patch"]', 'default RBAC must not include workload write verbs');
 assertExcludes(readOnly, 'resources: ["leases"]', 'default install should not grant Lease RBAC');
@@ -88,6 +90,23 @@ assertIncludes(writeEnabled, 'resources: ["deployments", "statefulsets", "daemon
 assertIncludes(writeEnabled, 'verbs: ["patch"]', 'write RBAC should grant only patch');
 assertExcludes(writeEnabled, 'deployments/scale', 'write RBAC should not grant scale subresources');
 assertExcludes(writeEnabled, 'verbs: ["patch", "update"]', 'write RBAC should not grant update');
+assertExcludes(writeEnabled, 'resources: ["cronjobs"]\n    verbs: ["patch"]', 'default write RBAC should not patch CronJobs');
+assertExcludes(writeEnabled, 'resources: ["services"]\n    verbs: ["patch"]', 'default write RBAC should not patch Services');
+assertExcludes(writeEnabled, 'resources: ["ingresses"]\n    verbs: ["patch"]', 'default write RBAC should not patch Ingresses');
+
+const expandedPatchKinds = helmTemplate([
+  ...baseArgs,
+  '--set',
+  'rbac.write.enabled=true',
+  '--set-json',
+  'patchPolicy.kinds=["Deployment","StatefulSet","DaemonSet","CronJob","Service","Ingress"]',
+  '--set',
+  'patchPolicy.allowServiceSelectorChanges=true'
+]);
+assertIncludes(expandedPatchKinds, 'resources: ["cronjobs"]\n    verbs: ["patch"]', 'CronJob patch opt-in should add exact batch RBAC');
+assertIncludes(expandedPatchKinds, 'resources: ["services"]\n    verbs: ["patch"]', 'Service patch opt-in should add exact core RBAC');
+assertIncludes(expandedPatchKinds, 'resources: ["ingresses"]\n    verbs: ["patch"]', 'Ingress patch opt-in should add exact networking RBAC');
+assertMatch(expandedPatchKinds, /name: ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH\s+value: "true"/, 'selector operator opt-in should reach AgentK');
 
 const existingSecret = helmTemplate([
   '--set-string',
@@ -129,6 +148,22 @@ const namespaceWrite = helmTemplate([
 assertExcludes(namespaceWrite, 'kind: ClusterRole', 'namespace write install should remain Role-scoped');
 assertIncludes(namespaceWrite, 'resources: ["deployments", "statefulsets", "daemonsets"]', 'namespace write RBAC should cover only workload parents');
 assertIncludes(namespaceWrite, 'verbs: ["patch"]', 'namespace write RBAC should grant patch');
+
+const namespaceExpandedPatchKinds = helmTemplate([
+  ...baseArgs,
+  '--set-string',
+  'rbac.scope=namespace',
+  '--set-json',
+  'rbac.namespaces=["team-a"]',
+  '--set',
+  'rbac.write.enabled=true',
+  '--set-json',
+  'patchPolicy.kinds=["Deployment","StatefulSet","DaemonSet","CronJob","Service","Ingress"]'
+]);
+assertExcludes(namespaceExpandedPatchKinds, 'kind: ClusterRole', 'expanded namespace patch RBAC should remain Role-scoped');
+assertIncludes(namespaceExpandedPatchKinds, 'resources: ["cronjobs"]\n    verbs: ["patch"]', 'namespace CronJob opt-in should add exact batch RBAC');
+assertIncludes(namespaceExpandedPatchKinds, 'resources: ["services"]\n    verbs: ["patch"]', 'namespace Service opt-in should add exact core RBAC');
+assertIncludes(namespaceExpandedPatchKinds, 'resources: ["ingresses"]\n    verbs: ["patch"]', 'namespace Ingress opt-in should add exact networking RBAC');
 assertExcludes(namespaceWrite, 'deployments/scale', 'namespace write RBAC should not grant scale subresources');
 assertExcludes(namespaceWrite, 'verbs: ["patch", "update"]', 'namespace write RBAC should not grant update');
 

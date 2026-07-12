@@ -54,7 +54,7 @@ Primary docs:
 
 - **Runtime**: Node.js 20+
 - **Language**: TypeScript (Strict Mode)
-- **Core Libraries**: `@kubernetes/client-node`, `ws`, `zod`, `pino`, `fast-json-patch`, `jsonpath-plus`.
+- **Core Libraries**: `@kubernetes/client-node`, `ws`, `zod`, and `pino`.
 
 ## Configuration
 
@@ -78,6 +78,8 @@ The agent is configured via environment variables:
 | `ACORNOPS_AGENT_TOOL_MAX_OUTPUT_BYTES` | Maximum serialized tool result size | `2097152` |
 | `ACORNOPS_AGENT_SCALE_MAX_REPLICAS` | Maximum accepted scale target (hard ceiling: 100) | `100` |
 | `ACORNOPS_AGENT_ALLOW_SCALE_TO_ZERO` | Operator opt-in required before caller-confirmed scale-to-zero | `false` |
+| `ACORNOPS_AGENT_PATCH_KINDS` | Comma-separated local maximum for `patch_resource` kinds | `Deployment,StatefulSet,DaemonSet` |
+| `ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH` | Operator opt-in required before caller-confirmed Service selector changes | `false` |
 | `ACORNOPS_AGENT_RBAC_SCOPE` | Local RBAC boundary (`cluster` or `namespace`) | `cluster` |
 | `ACORNOPS_AGENT_WATCH_CACHE_ENABLED` | Build snapshots from a Kubernetes watch-backed local cache when ready | `true` |
 | `ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS` | Debounce window for snapshots triggered by watched resource or Warning event changes | `5000` |
@@ -160,6 +162,11 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-age
   --set-string config.agentKey=YOUR_AGENT_KEY \
   --set rbac.write.enabled=true
 ```
+
+`patch_resource` accepts only semantic image and metadata operations. CronJob,
+Service, and Ingress patch permissions are additional explicit
+`patchPolicy.kinds` opt-ins. Service selector changes also require
+`patchPolicy.allowServiceSelectorChanges=true` and caller confirmation.
 
 For namespace-scoped installs, create Roles only in the watched namespaces:
 
@@ -405,4 +412,4 @@ Run the checks that match the change:
 - `get_resource_logs`: Read bounded Pod logs (max 1 MiB).
 - `restart_workload`: Guarded rolling restart for Deployments, StatefulSets, and DaemonSets.
 - `scale_workload`: Guarded scaling for Deployments and StatefulSets.
-- `simulate_patch`: Generate a redacted JSON Patch-style diff without applying it.
+- `patch_resource`: Apply a guarded semantic image, label, annotation, or explicitly enabled Service selector change.

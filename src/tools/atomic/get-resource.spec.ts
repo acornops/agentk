@@ -5,6 +5,7 @@ vi.mock('../../k8s/client.js', () => ({
     core: {
       readNamespacedPod: vi.fn(),
       readNamespacedService: vi.fn(),
+      readNamespacedPersistentVolumeClaim: vi.fn(),
       readNode: vi.fn(),
       readNamespacedEvent: vi.fn(),
       readNamespace: vi.fn(),
@@ -20,6 +21,9 @@ vi.mock('../../k8s/client.js', () => ({
     },
     autoscaling: {
       readNamespacedHorizontalPodAutoscaler: vi.fn(),
+    },
+    networking: {
+      readNamespacedIngress: vi.fn(),
     },
   },
 }));
@@ -46,6 +50,8 @@ describe('getResourceTool', () => {
     ['CronJob', vi.mocked(k8sClient.batch.readNamespacedCronJob), { name: 'api', namespace: 'default' }],
     ['Job', vi.mocked(k8sClient.batch.readNamespacedJob), { name: 'api', namespace: 'default' }],
     ['Service', vi.mocked(k8sClient.core.readNamespacedService), { name: 'api', namespace: 'default' }],
+    ['Ingress', vi.mocked(k8sClient.networking.readNamespacedIngress), { name: 'api', namespace: 'default' }],
+    ['PVC', vi.mocked(k8sClient.core.readNamespacedPersistentVolumeClaim), { name: 'api', namespace: 'default' }],
     ['HPA', vi.mocked(k8sClient.autoscaling.readNamespacedHorizontalPodAutoscaler), { name: 'api', namespace: 'default' }],
     ['Event', vi.mocked(k8sClient.core.readNamespacedEvent), { name: 'api', namespace: 'default' }],
   ])('reads %s resources through the matching namespaced API', async (kind, method, expectedArgs) => {

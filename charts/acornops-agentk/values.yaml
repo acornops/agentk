@@ -118,6 +118,17 @@ rbac:
     # advertises read-only capabilities and the chart grants no mutation verbs.
     enabled: false
 
+# Local maximum for the structured patch_resource tool. Workload kinds use the
+# existing apps patch RBAC. Other kinds add explicit opt-in Role/ClusterRole rules.
+patchPolicy:
+  kinds:
+    - Deployment
+    - StatefulSet
+    - DaemonSet
+  # Service selector changes can immediately redirect traffic and require both
+  # this operator opt-in and caller confirmation.
+  allowServiceSelectorChanges: false
+
 # Annotations added to every agent pod (e.g. for Prometheus scraping or Vault injection).
 podAnnotations: {}
 # Extra labels added to every agent pod.

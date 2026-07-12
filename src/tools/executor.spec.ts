@@ -112,6 +112,66 @@ describe('ToolExecutor', () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
+  it('keeps numeric and string JSON-RPC request IDs in separate idempotency domains', async () => {
+    const handler = vi.fn(async (_args, context) => context?.operationId);
+    toolRegistry.register({
+      name: 'operation_id_tool', description: 'id', capability: 'read', timeoutMs: 1000, version: 'v1',
+      schema: z.object({}).strict(), scopeResolver: () => ({ type: 'namespace-collection' }), handler,
+    });
+    const policy = { allowedTools: new Set(['operation_id_tool']), writeEnabled: false, generation: 1 };
+
+    const numericId = await toolExecutor.execute({ name: 'operation_id_tool', arguments: {}, requestId: 1, policy });
+    const stringId = await toolExecutor.execute({ name: 'operation_id_tool', arguments: {}, requestId: '1', policy });
+
+    expect(numericId).not.toBe(stringId);
+  });
+
+  it('rejects invalid arguments before concurrency admission', async () => {
+    const executor = new ToolExecutor({ readConcurrency: 1, writeConcurrency: 1, queueLimit: 0 });
+    executor.setActiveGeneration(1);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    toolRegistry.register({
+      name: 'validated_write', description: 'write', capability: 'write', timeoutMs: 1000, version: 'v1',
+      schema: z.object({ valid: z.literal(true) }).strict(), scopeResolver: () => ({ type: 'namespace-collection' }),
+      handler: async () => { await held; return { ok: true }; },
+    });
+    const policy = { allowedTools: new Set(['validated_write']), writeEnabled: true, generation: 1 };
+    const active = executor.execute({ name: 'validated_write', arguments: { valid: true }, requestId: 1, policy });
+
+    await expect(executor.execute({ name: 'validated_write', arguments: { valid: false }, requestId: 2, policy }))
+      .rejects.toMatchObject({ toolCode: 'INVALID_ARGUMENTS' });
+    release();
+    await active;
+  });
+
+  it('cancels queued calls immediately when their session generation is revoked', async () => {
+    const executor = new ToolExecutor({ readConcurrency: 1, writeConcurrency: 1, queueLimit: 1 });
+    executor.setActiveGeneration(1);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    toolRegistry.register({
+      name: 'generation_write', description: 'write', capability: 'write', timeoutMs: 1000, version: 'v1',
+      schema: z.object({}).strict(), scopeResolver: () => ({ type: 'namespace-collection' }),
+      handler: async () => { markStarted(); await held; return { ok: true }; },
+    });
+    const oldPolicy = { allowedTools: new Set(['generation_write']), writeEnabled: true, generation: 1 };
+    const active = executor.execute({ name: 'generation_write', arguments: {}, requestId: 1, policy: oldPolicy });
+    await started;
+    const queued = executor.execute({ name: 'generation_write', arguments: {}, requestId: 2, policy: oldPolicy });
+
+    executor.clearActiveGeneration();
+    await expect(queued).rejects.toMatchObject({ toolCode: 'TOOL_NOT_ALLOWED' });
+    executor.setActiveGeneration(2);
+    const newPolicy = { ...oldPolicy, generation: 2 };
+    const replacement = executor.execute({ name: 'generation_write', arguments: {}, requestId: 3, policy: newPolicy });
+    release();
+    await active;
+    await expect(replacement).resolves.toEqual({ ok: true });
+  });
+
   it('reports timed-out writes with an unknown outcome and operation id', async () => {
     vi.useFakeTimers();
     toolExecutor.setActiveGeneration(2);

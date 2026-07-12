@@ -118,7 +118,7 @@ describe('E2E Agent Lifecycle', () => {
             'get_resource_logs',
             'restart_workload',
             'scale_workload',
-            'simulate_patch',
+            'patch_resource',
           ],
           writeEnabled: false,
         },
@@ -147,6 +147,8 @@ describe('E2E Agent Lifecycle', () => {
     const listedTools = ((toolsListResponse.parsed?.result as { tools?: Array<{ name?: string }> })?.tools) || [];
     expect(listedTools.some((tool) => tool.name === 'list_resources')).toBe(true);
     expect(listedTools).toHaveLength(6);
+    expect(listedTools.some((tool) => tool.name === 'patch_resource')).toBe(true);
+    expect(listedTools.some((tool) => tool.name === 'simulate_patch')).toBe(false);
     expect(listedTools.some((tool) => tool.name === 'apply_remediation')).toBe(false);
 
     connection.send(JSON.stringify({
@@ -163,6 +165,18 @@ describe('E2E Agent Lifecycle', () => {
       (message) => !message.isBinary && message.parsed?.id === 'tools-call-1',
     );
     expect((toolsCallResponse.parsed as { error?: { code?: number } }).error?.code).toBe(-32601);
+
+    connection.send(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'tools-call-write-disabled',
+      method: 'tools/call',
+      params: { name: 'patch_resource', arguments: {} },
+    }));
+    const writeDisabledResponse = await waitForMessage(
+      messages,
+      (message) => !message.isBinary && message.parsed?.id === 'tools-call-write-disabled',
+    );
+    expect((writeDisabledResponse.parsed as { error?: { code?: number } }).error?.code).toBe(-32002);
 
     connection.close();
     await waitForCondition(() => sockets.length >= expectedSocketsAfterReconnect, 30000);

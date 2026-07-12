@@ -1,21 +1,23 @@
 import { z } from 'zod';
 
+export const JsonRpcIdSchema = z.union([z.string().max(256), z.number().finite()]);
+
 export const JsonRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
-  id: z.union([z.string(), z.number()]),
-  method: z.string(),
+  id: JsonRpcIdSchema,
+  method: z.string().min(1).max(128),
   params: z.any().optional(),
-});
+}).strict();
 
 export const JsonRpcNotificationSchema = z.object({
   jsonrpc: z.literal('2.0'),
-  method: z.string(),
+  method: z.string().min(1).max(128),
   params: z.any().optional(),
-});
+}).strict();
 
 export const JsonRpcResponseSchema = z.object({
   jsonrpc: z.literal('2.0'),
-  id: z.union([z.string(), z.number()]),
+  id: JsonRpcIdSchema.nullable(),
   result: z.any().optional(),
   error: z.object({
     code: z.number(),
@@ -52,7 +54,7 @@ export function createResponse(id: string | number, result: any): JsonRpcRespons
 /**
  * Creates a standard JSON-RPC 2.0 Error Response object.
  */
-export function createErrorResponse(id: string | number, code: number, message: string, data?: any): JsonRpcResponse {
+export function createErrorResponse(id: string | number | null, code: number, message: string, data?: any): JsonRpcResponse {
   return { jsonrpc: '2.0', id, error: { code, message, data } };
 }
 

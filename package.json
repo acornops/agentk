@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.0.0",
-    "fast-json-patch": "^3.1.1",
     "node-fetch": "^2.7.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",

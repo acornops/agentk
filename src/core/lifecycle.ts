@@ -5,8 +5,11 @@ import {
     createRequest,
     createNotification,
     JsonRpcRequest,
+    JsonRpcRequestSchema,
     JsonRpcResponse,
     JsonRpcNotification,
+    JsonRpcNotificationSchema,
+    JsonRpcIdSchema,
     createResponse,
     createErrorResponse,
     RPC_ERRORS
@@ -179,26 +182,38 @@ export class LifecycleManager {
       }
 
       if ('method' in message && 'id' in message) {
-        if (message.method === 'config/update_namespace_scope') {
+        const requestResult = JsonRpcRequestSchema.safeParse(message);
+        if (!requestResult.success) {
+          const responseId = JsonRpcIdSchema.safeParse(message.id);
+          this.sendOutbound(JSON.stringify(createErrorResponse(
+            responseId.success ? responseId.data : null,
+            RPC_ERRORS.INVALID_REQUEST,
+            'Invalid JSON-RPC request'
+          )));
+          return;
+        }
+        const request = requestResult.data;
+        if (request.method === 'config/update_namespace_scope') {
           if (!this.sessionReady) {
             this.sendOutbound(JSON.stringify(createErrorResponse(
-              message.id,
+              request.id,
               -32001,
               'Tool session is not ready',
               { code: 'TOOL_NOT_ALLOWED' }
             )));
             return;
           }
-          const response = this.handleNamespaceScopeUpdate(message as JsonRpcRequest);
+          const response = this.handleNamespaceScopeUpdate(request);
           this.sendOutbound(JSON.stringify(response));
           return;
         }
         // Request
-        const response = await mcpRouter.handleRequest(message as JsonRpcRequest);
+        const response = await mcpRouter.handleRequest(request);
         this.sendOutbound(JSON.stringify(response));
       } else if ('method' in message) {
-        // Notification
-        this.handleNotification(message as JsonRpcNotification);
+        const notification = JsonRpcNotificationSchema.safeParse(message);
+        if (!notification.success) throw new Error('Invalid JSON-RPC notification');
+        this.handleNotification(notification.data);
       }
     } catch (err) {
       logger.error({ err }, 'Failed to handle message');
@@ -229,6 +244,7 @@ export class LifecycleManager {
       };
     } | undefined;
     if (
+      response.jsonrpc !== '2.0' ||
       !result ||
       typeof result.workspaceId !== 'string' ||
       result.workspaceId.trim().length === 0 ||

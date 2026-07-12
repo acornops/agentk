@@ -315,6 +315,39 @@ describe('LifecycleManager', () => {
     );
   });
 
+  it('rejects malformed JSON-RPC requests before routing', async () => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+
+    clientInstances[0]!.emit('message', JSON.stringify({
+      jsonrpc: '1.0', id: { unsafe: true }, method: 'tools/list', params: {},
+    }));
+    await Promise.resolve();
+
+    expect(handleRequest).not.toHaveBeenCalled();
+    expect(clientInstances[0]!.send).toHaveBeenCalledWith(JSON.stringify({
+      jsonrpc: '2.0', id: null,
+      error: { code: -32600, message: 'Invalid JSON-RPC request' },
+    }));
+  });
+
+  it('rejects a handshake response without a JSON-RPC 2.0 envelope', async () => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+
+    clientInstances[0]!.emit('message', JSON.stringify({
+      id: 'handshake-1',
+      result: {
+        workspaceId: 'ws-1', targetId: 'cluster-1', targetType: 'kubernetes',
+        sessionPolicy: { allowedTools: ['list_resources'], writeEnabled: true }, config: {},
+      },
+    }));
+    await Promise.resolve();
+
+    expect(clientInstances[0]!.forceReconnect).toHaveBeenCalledTimes(1);
+    expect(setSessionPolicy).not.toHaveBeenCalled();
+  });
+
   it('rejects pre-handshake namespace scope updates', async () => {
     const lifecycle = new LifecycleManager();
     lifecycle.start();

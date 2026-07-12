@@ -50,7 +50,7 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
 - Slow or skipped telemetry: inspect `watch-manager` and `snapshot-manager` logs, increase the snapshot interval if collection takes too long, then tune `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` if list fallback or relist recovery is the bottleneck.
 - HA does not elect a leader: verify Lease RBAC and `leaderElection.enabled=true`.
 - Tool rejected before execution: verify handshake session policy, local namespace maximum, and write enablement.
-- Write tool times out: treat the outcome as unknown, retain the returned operation ID, and inspect the workload before deciding whether to retry the same tool call ID.
+- Write tool times out, or Kubernetes accepts a mutation but returns a result that AgentK cannot verify: treat the outcome as unknown, retain the returned operation ID, and inspect the resource before deciding whether to retry the same tool call ID.
 
 ## Tool Safety Defaults
 
@@ -58,6 +58,11 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
 - Maximum tool input: 1 MiB; maximum serialized output: 2 MiB.
 - Maximum scale target: 100 replicas; operators may configure a lower ceiling.
 - Scale-to-zero is disabled unless both the operator and the caller confirm it.
+- Structured patching defaults to Deployment, StatefulSet, and DaemonSet.
+  CronJob, Service, and Ingress patch RBAC must be opted into through
+  `patchPolicy.kinds`.
+- Service selector changes require both operator enablement and caller
+  confirmation because they can immediately redirect traffic.
 - Namespace-scoped installs use their Role namespaces as the local maximum scope.
 
 ## Required Validation

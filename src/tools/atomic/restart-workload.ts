@@ -4,7 +4,13 @@ import { k8sClient } from '../../k8s/client.js';
 import { ToolExecutionError } from '../errors.js';
 import { ToolDefinition, ToolExecutionContext } from '../registry.js';
 import { kubernetesNameSchema, namespaceSchema, reasonSchema } from '../schemas.js';
-import { checkNamespaceAllowed, checkWriteEnabled, getAnnotations } from '../utils.js';
+import {
+  checkNamespaceAllowed,
+  checkOperationNotAborted,
+  checkWriteEnabled,
+  getAnnotations,
+  operationAnnotationsMatch,
+} from '../utils.js';
 import { WriteReceipt } from '../write-receipt.js';
 
 const schema = z.object({
@@ -53,18 +59,18 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
   checkNamespaceAllowed(params.namespace);
   const operationId = context?.operationId || `direct-${Date.now()}`;
   const current = await readWorkload(params.kind, params.name, params.namespace);
+  checkOperationNotAborted(context, operationId);
   if (!current.metadata?.uid || !current.metadata?.resourceVersion) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Workload identity is incomplete');
   }
   const operationHash = createHash('sha256').update(JSON.stringify(params)).digest('hex');
   const existingAnnotations = current.spec?.template?.metadata?.annotations || {};
   const existingOperationId = existingAnnotations['acornops.dev/operation-id'];
-  const existingOperationHash = existingAnnotations['acornops.dev/operation-hash'];
   const existingRestartedAt = existingAnnotations['kubectl.kubernetes.io/restartedAt'];
-  if (existingOperationId === operationId && existingOperationHash !== operationHash) {
-    throw new ToolExecutionError('PRECONDITION_FAILED', 'Operation ID was already used with different restart arguments');
-  }
-  if (existingOperationId === operationId && existingOperationHash === operationHash && existingRestartedAt) {
+  if (existingOperationId === operationId) {
+    if (!operationAnnotationsMatch(existingAnnotations, operationId, operationHash, 'restart') || !existingRestartedAt) {
+      throw new ToolExecutionError('PRECONDITION_FAILED', 'Operation ID was already used with different restart arguments or state');
+    }
     return receipt(params, current, operationId, existingRestartedAt);
   }
   const restartedAt = new Date().toISOString();
@@ -83,8 +89,14 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
     { op: 'test', path: '/metadata/resourceVersion', value: current.metadata.resourceVersion },
     { op: 'add', path, value },
   ]);
-  if (updated.metadata?.uid !== current.metadata.uid || !updated.metadata?.resourceVersion) {
-    throw new ToolExecutionError('PRECONDITION_FAILED', 'Patched workload identity is inconsistent');
+  const updatedAnnotations = updated.spec?.template?.metadata?.annotations;
+  if (updated.metadata?.uid !== current.metadata.uid || !updated.metadata?.resourceVersion ||
+      updated.metadata.resourceVersion === current.metadata.resourceVersion ||
+      !operationAnnotationsMatch(updatedAnnotations, operationId, operationHash, 'restart') ||
+      updatedAnnotations?.['kubectl.kubernetes.io/restartedAt'] !== restartedAt) {
+    throw new ToolExecutionError('KUBERNETES_ERROR', 'Kubernetes accepted the restart but returned an inconsistent workload', {
+      outcome: 'unknown', operationId,
+    });
   }
   return receipt(params, updated, operationId, restartedAt);
 }

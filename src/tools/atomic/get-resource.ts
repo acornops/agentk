@@ -6,7 +6,7 @@ import { checkNamespaceAllowed } from '../utils.js';
 import { kubernetesNameSchema, namespaceSchema } from '../schemas.js';
 
 const schema = z.object({
-  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Node', 'HPA', 'Event', 'Namespace']),
+  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Ingress', 'PVC', 'Node', 'HPA', 'Event', 'Namespace']),
   name: kubernetesNameSchema,
   namespace: namespaceSchema.optional()
 }).strict().superRefine((value, ctx) => {
@@ -42,6 +42,12 @@ async function handler(params: z.infer<typeof schema>) {
       break;
     case 'Service':
       resource = await k8sClient.core.readNamespacedService({ name, namespace: namespace! });
+      break;
+    case 'Ingress':
+      resource = await k8sClient.networking.readNamespacedIngress({ name, namespace: namespace! });
+      break;
+    case 'PVC':
+      resource = await k8sClient.core.readNamespacedPersistentVolumeClaim({ name, namespace: namespace! });
       break;
     case 'Node':
       resource = await k8sClient.core.readNode({ name });

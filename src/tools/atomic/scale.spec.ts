@@ -48,9 +48,10 @@ describe('scaleWorkloadTool', () => {
       metadata: { uid: 'dep-uid', resourceVersion: '10', generation: 2, annotations: { existing: 'annotation' } },
       spec: { replicas: 3 },
     } as never);
-    vi.mocked(k8sClient.apps.patchNamespacedDeployment).mockResolvedValue({
-      metadata: { name: 'api', uid: 'dep-uid', resourceVersion: '11', generation: 3 },
-    } as never);
+    vi.mocked(k8sClient.apps.patchNamespacedDeployment).mockImplementation(async ({ body }: any) => ({
+      metadata: { name: 'api', uid: 'dep-uid', resourceVersion: '11', generation: 3, annotations: body[3].value },
+      spec: { replicas: body[2].value },
+    }) as never);
 
     await expect(
       scaleWorkloadTool.handler({
@@ -92,9 +93,10 @@ describe('scaleWorkloadTool', () => {
       metadata: { uid: 'sts-uid', resourceVersion: '20', annotations: {} },
       spec: { replicas: 1 },
     } as never);
-    vi.mocked(k8sClient.apps.patchNamespacedStatefulSet).mockResolvedValue({
-      metadata: { name: 'db', uid: 'sts-uid', resourceVersion: '21' },
-    } as never);
+    vi.mocked(k8sClient.apps.patchNamespacedStatefulSet).mockImplementation(async ({ body }: any) => ({
+      metadata: { name: 'db', uid: 'sts-uid', resourceVersion: '21', annotations: body[3].value },
+      spec: { replicas: body[2].value },
+    }) as never);
 
     await scaleWorkloadTool.handler({
       kind: 'StatefulSet',
@@ -168,7 +170,9 @@ describe('scaleWorkloadTool', () => {
         uid: 'dep-uid', resourceVersion: '11',
         annotations: {
           'acornops.dev/operation-id': 'op-1', 'acornops.dev/operation-hash': hash,
-          'acornops.dev/previous-replicas': '3', 'acornops.dev/hpa-override': 'false',
+          'acornops.dev/operation-kind': 'scale',
+          'acornops.dev/previous-replicas': '3', 'acornops.dev/requested-replicas': '5',
+          'acornops.dev/hpa-override': 'false',
         },
       },
       spec: { replicas: 5 },
@@ -177,5 +181,63 @@ describe('scaleWorkloadTool', () => {
     await expect(scaleWorkloadTool.handler(params, { operationId: 'op-1', requestId: 1, sessionGeneration: 1 }))
       .resolves.toMatchObject({ change: { previousReplicas: 3, requestedReplicas: 5 } });
     expect(k8sClient.apps.patchNamespacedDeployment).not.toHaveBeenCalled();
+  });
+
+  it('rejects an idempotent retry with incomplete persisted receipt metadata', async () => {
+    config.ACORNOPS_AGENT_WRITE_ENABLED = true;
+    const params = {
+      kind: 'Deployment' as const, name: 'api', namespace: 'default', replicas: 5, reason: 'manual scale',
+      confirm_scale_to_zero: false, confirm_hpa_override: false,
+    };
+    const hash = createHash('sha256').update(JSON.stringify(params)).digest('hex');
+    vi.mocked(k8sClient.apps.readNamespacedDeployment).mockResolvedValue({
+      metadata: {
+        uid: 'dep-uid', resourceVersion: '11',
+        annotations: {
+          'acornops.dev/operation-id': 'op-1', 'acornops.dev/operation-hash': hash,
+          'acornops.dev/operation-kind': 'scale', 'acornops.dev/previous-replicas': 'not-a-number',
+          'acornops.dev/requested-replicas': '5', 'acornops.dev/hpa-override': 'false',
+        },
+      },
+      spec: { replicas: 5 },
+    } as never);
+
+    await expect(scaleWorkloadTool.handler(params, { operationId: 'op-1', requestId: 1, sessionGeneration: 1 }))
+      .rejects.toMatchObject({ toolCode: 'PRECONDITION_FAILED' });
+  });
+
+  it('does not patch after its execution deadline expires during HPA discovery', async () => {
+    config.ACORNOPS_AGENT_WRITE_ENABLED = true;
+    const controller = new AbortController();
+    vi.mocked(k8sClient.apps.readNamespacedDeployment).mockResolvedValue({
+      metadata: { uid: 'dep-uid', resourceVersion: '10' }, spec: { replicas: 3 },
+    } as never);
+    vi.mocked(k8sClient.autoscaling.listNamespacedHorizontalPodAutoscaler).mockImplementationOnce(async () => {
+      controller.abort();
+      return { items: [] } as never;
+    });
+
+    await expect(scaleWorkloadTool.handler(
+      { kind: 'Deployment', name: 'api', namespace: 'default', replicas: 4, reason: 'scale' },
+      { operationId: 'op-timeout', requestId: 1, sessionGeneration: 1, signal: controller.signal },
+    )).rejects.toMatchObject({ toolCode: 'TOOL_TIMEOUT', data: { outcome: 'not_started' } });
+    expect(k8sClient.apps.patchNamespacedDeployment).not.toHaveBeenCalled();
+  });
+
+  it('reports an unknown outcome when an accepted scale cannot be verified', async () => {
+    config.ACORNOPS_AGENT_WRITE_ENABLED = true;
+    vi.mocked(k8sClient.apps.readNamespacedDeployment).mockResolvedValue({
+      metadata: { uid: 'dep-uid', resourceVersion: '10' }, spec: { replicas: 3 },
+    } as never);
+    vi.mocked(k8sClient.apps.patchNamespacedDeployment).mockResolvedValue({
+      metadata: { uid: 'dep-uid', resourceVersion: '11' }, spec: { replicas: 4 },
+    } as never);
+
+    await expect(scaleWorkloadTool.handler(
+      { kind: 'Deployment', name: 'api', namespace: 'default', replicas: 4, reason: 'scale' },
+      { operationId: 'op-unknown', requestId: 1, sessionGeneration: 1 },
+    )).rejects.toMatchObject({
+      toolCode: 'KUBERNETES_ERROR', data: { outcome: 'unknown', operationId: 'op-unknown' },
+    });
   });
 });

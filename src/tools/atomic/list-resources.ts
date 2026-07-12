@@ -9,7 +9,7 @@ import { filterNamespaceItems, getEffectiveNamespaceScope, hasBoundedNamespaceIn
 import { ToolExecutionError } from '../errors.js';
 
 const schema = z.object({
-  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Namespace', 'Node', 'Event']),
+  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Ingress', 'PVC', 'HPA', 'Namespace', 'Node', 'Event']),
   namespace: namespaceSchema.optional(),
   label_selector: selectorSchema.optional(),
   field_selector: selectorSchema.optional(),
@@ -74,6 +74,35 @@ function summarizeResource(kind: string, item: any): Record<string, unknown> {
       ...base,
       type: item?.spec?.type || 'ClusterIP',
       clusterIP: item?.spec?.clusterIP || ''
+    };
+  }
+
+  if (kind === 'Ingress') {
+    return {
+      ...base,
+      hosts: (item?.spec?.rules || []).map((rule: any) => rule?.host).filter(Boolean),
+      ingressClassName: item?.spec?.ingressClassName || '',
+    };
+  }
+
+  if (kind === 'PVC') {
+    return {
+      ...base,
+      phase: item?.status?.phase || 'Unknown',
+      capacity: item?.status?.capacity?.storage || '',
+      storageClassName: item?.spec?.storageClassName || '',
+    };
+  }
+
+  if (kind === 'HPA') {
+    return {
+      ...base,
+      minReplicas: item?.spec?.minReplicas ?? 1,
+      maxReplicas: item?.spec?.maxReplicas ?? 0,
+      currentReplicas: item?.status?.currentReplicas ?? 0,
+      desiredReplicas: item?.status?.desiredReplicas ?? 0,
+      targetKind: item?.spec?.scaleTargetRef?.kind || '',
+      targetName: item?.spec?.scaleTargetRef?.name || '',
     };
   }
 
@@ -171,6 +200,21 @@ async function handler(params: z.infer<typeof schema>) {
       response = namespace
         ? await k8sClient.core.listNamespacedService({ namespace, ...listOptions })
         : await k8sClient.core.listServiceForAllNamespaces(listOptions);
+      break;
+    case 'Ingress':
+      response = namespace
+        ? await k8sClient.networking.listNamespacedIngress({ namespace, ...listOptions })
+        : await k8sClient.networking.listIngressForAllNamespaces(listOptions);
+      break;
+    case 'PVC':
+      response = namespace
+        ? await k8sClient.core.listNamespacedPersistentVolumeClaim({ namespace, ...listOptions })
+        : await k8sClient.core.listPersistentVolumeClaimForAllNamespaces(listOptions);
+      break;
+    case 'HPA':
+      response = namespace
+        ? await k8sClient.autoscaling.listNamespacedHorizontalPodAutoscaler({ namespace, ...listOptions })
+        : await k8sClient.autoscaling.listHorizontalPodAutoscalerForAllNamespaces(listOptions);
       break;
     case 'Namespace':
       response = await k8sClient.core.listNamespace(listOptions);

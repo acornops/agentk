@@ -2,7 +2,7 @@ export interface WriteReceipt {
   success: true;
   operationId: string;
   target: {
-    kind: 'Deployment' | 'StatefulSet' | 'DaemonSet';
+    kind: 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'CronJob' | 'Service' | 'Ingress';
     namespace: string;
     name: string;
     uid: string;
@@ -14,6 +14,13 @@ export interface WriteReceipt {
         previousReplicas: number;
         requestedReplicas: number;
         hpaOverride: boolean;
+      }
+    | {
+        type: 'patch';
+        changeCount: number;
+        rolloutTriggered: boolean;
+        serviceRoutingChanged: boolean;
+        fields: Array<{ type: string; location: string }>;
       };
   observed: {
     resourceVersion: string;

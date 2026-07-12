@@ -15,7 +15,7 @@ const LIST_RESULT_FIELDS = new Set(['continue_token']);
 
 class AdmissionGate {
   private active = 0;
-  private readonly queue: Array<{ resolve: () => void; timer: NodeJS.Timeout }> = [];
+  private readonly queue: Array<{ resolve: () => void; reject: (reason: unknown) => void; timer: NodeJS.Timeout }> = [];
 
   /** Create a bounded concurrency gate. */
   constructor(private readonly concurrency: number, private readonly queueBudget: QueueBudget) {}
@@ -36,6 +36,7 @@ class AdmissionGate {
           this.queueBudget.leave();
           resolve();
         },
+        reject,
         timer: setTimeout(() => {
           const index = this.queue.indexOf(entry);
           if (index >= 0) this.queue.splice(index, 1);
@@ -46,6 +47,16 @@ class AdmissionGate {
       this.queue.push(entry);
     });
     return () => this.release();
+  }
+
+  /** Reject queued calls and return their shared queue budget immediately. */
+  cancelQueued(reason: ToolExecutionError): void {
+    const queued = this.queue.splice(0);
+    for (const entry of queued) {
+      clearTimeout(entry.timer);
+      this.queueBudget.leave();
+      entry.reject(reason);
+    }
   }
 
   private release(): void {
@@ -103,12 +114,16 @@ export class ToolExecutor {
 
   /** Activate one authenticated connection generation. */
   public setActiveGeneration(generation: number): void {
+    if (this.activeGeneration !== null && this.activeGeneration !== generation) {
+      this.cancelQueuedCalls();
+    }
     this.activeGeneration = generation;
   }
 
   /** Revoke the active connection generation for future and queued calls. */
   public clearActiveGeneration(): void {
     this.activeGeneration = null;
+    this.cancelQueuedCalls();
   }
 
   /** Execute a registered tool through all shared policy checks. */
@@ -137,8 +152,14 @@ export class ToolExecutor {
       throw new ToolExecutionError('INVALID_ARGUMENTS', 'Tool input exceeds the configured size limit');
     }
 
+    const parsed = tool.schema.safeParse(params.arguments);
+    if (!parsed.success) {
+      throw new ToolExecutionError('INVALID_ARGUMENTS', 'Invalid tool arguments', parsed.error.flatten());
+    }
+    this.authorizeScope(tool, parsed.data);
+
     const operationId = createHash('sha256')
-      .update(`${params.policy.generation}:${String(params.requestId)}`)
+      .update(`${params.policy.generation}:${typeof params.requestId}:${String(params.requestId)}`)
       .digest('hex')
       .slice(0, 24);
     const deadline = Date.now() + tool.timeoutMs;
@@ -154,11 +175,6 @@ export class ToolExecutor {
       if (this.activeGeneration !== params.policy.generation) {
         throw new ToolExecutionError('TOOL_NOT_ALLOWED', 'Tool session generation is no longer active');
       }
-      const parsed = tool.schema.safeParse(params.arguments);
-      if (!parsed.success) {
-        throw new ToolExecutionError('INVALID_ARGUMENTS', 'Invalid tool arguments', parsed.error.flatten());
-      }
-      this.authorizeScope(tool, parsed.data);
       if (Date.now() >= deadline) {
         throw new ToolExecutionError('TOOL_TIMEOUT', `Tool '${tool.name}' timed out`, {
           outcome: 'not_started',
@@ -226,6 +242,12 @@ export class ToolExecutor {
     if (scope.type === 'cluster' && scope.namespace && !isNamespaceAllowed(scope.namespace)) {
       throw new ToolExecutionError('NAMESPACE_FORBIDDEN', `Namespace is outside the allowed scope: ${scope.namespace}`);
     }
+  }
+
+  private cancelQueuedCalls(): void {
+    const error = new ToolExecutionError('TOOL_NOT_ALLOWED', 'Tool session generation is no longer active');
+    this.gates.read.cancelQueued(error);
+    this.gates.write.cancelQueued(error);
   }
 }
 

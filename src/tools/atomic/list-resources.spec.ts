@@ -7,6 +7,8 @@ vi.mock('../../k8s/client.js', () => ({
       listPodForAllNamespaces: vi.fn(),
       listNamespacedService: vi.fn(),
       listServiceForAllNamespaces: vi.fn(),
+      listNamespacedPersistentVolumeClaim: vi.fn(),
+      listPersistentVolumeClaimForAllNamespaces: vi.fn(),
       listNamespace: vi.fn(),
       listNode: vi.fn(),
       listNamespacedEvent: vi.fn(),
@@ -25,6 +27,14 @@ vi.mock('../../k8s/client.js', () => ({
       listCronJobForAllNamespaces: vi.fn(),
       listNamespacedJob: vi.fn(),
       listJobForAllNamespaces: vi.fn(),
+    },
+    networking: {
+      listNamespacedIngress: vi.fn(),
+      listIngressForAllNamespaces: vi.fn(),
+    },
+    autoscaling: {
+      listNamespacedHorizontalPodAutoscaler: vi.fn(),
+      listHorizontalPodAutoscalerForAllNamespaces: vi.fn(),
     },
   },
 }));
@@ -316,6 +326,28 @@ describe('listResourcesTool', () => {
           clusterIP: '10.0.0.10',
         },
       ],
+    });
+  });
+
+  it('lists and summarizes Ingress, PVC, and HPA resources', async () => {
+    vi.mocked(k8sClient.networking.listNamespacedIngress).mockResolvedValue({
+      metadata: {}, items: [{ metadata: { name: 'web', namespace: 'default' }, spec: { ingressClassName: 'nginx', rules: [{ host: 'app.example.com' }] } }],
+    } as never);
+    vi.mocked(k8sClient.core.listNamespacedPersistentVolumeClaim).mockResolvedValue({
+      metadata: {}, items: [{ metadata: { name: 'data', namespace: 'default' }, spec: { storageClassName: 'fast' }, status: { phase: 'Bound', capacity: { storage: '10Gi' } } }],
+    } as never);
+    vi.mocked(k8sClient.autoscaling.listNamespacedHorizontalPodAutoscaler).mockResolvedValue({
+      metadata: {}, items: [{ metadata: { name: 'api', namespace: 'default' }, spec: { minReplicas: 2, maxReplicas: 10, scaleTargetRef: { kind: 'Deployment', name: 'api' } }, status: { currentReplicas: 3, desiredReplicas: 4 } }],
+    } as never);
+
+    await expect(listResourcesTool.handler({ kind: 'Ingress', namespace: 'default', limit: 100 })).resolves.toMatchObject({
+      items: [{ name: 'web', hosts: ['app.example.com'], ingressClassName: 'nginx' }],
+    });
+    await expect(listResourcesTool.handler({ kind: 'PVC', namespace: 'default', limit: 100 })).resolves.toMatchObject({
+      items: [{ name: 'data', phase: 'Bound', capacity: '10Gi', storageClassName: 'fast' }],
+    });
+    await expect(listResourcesTool.handler({ kind: 'HPA', namespace: 'default', limit: 100 })).resolves.toMatchObject({
+      items: [{ name: 'api', minReplicas: 2, maxReplicas: 10, currentReplicas: 3, desiredReplicas: 4, targetKind: 'Deployment', targetName: 'api' }],
     });
   });
 
