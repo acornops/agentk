@@ -1,3 +1,4 @@
+{{- $platformAdditionalCaEnabled := include "acornops-agent.platformAdditionalCaEnabled" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,9 +45,20 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if $platformAdditionalCaEnabled }}
+          volumeMounts:
+            - name: platform-additional-ca
+              mountPath: {{ include "acornops-agent.platformAdditionalCaPath" . | quote }}
+              subPath: platform-ca.pem
+              readOnly: true
+          {{- end }}
           env:
             - name: ACORNOPS_AGENT_PLATFORM_URL
               value: {{ include "acornops-agent.websocketUrl" . | quote }}
+            {{- if $platformAdditionalCaEnabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ include "acornops-agent.platformAdditionalCaPath" . | quote }}
+            {{- end }}
             - name: ACORNOPS_CLUSTER_ID
               value: {{ required "config.clusterId is required" .Values.config.clusterId | quote }}
             - name: ACORNOPS_AGENT_KEY
@@ -134,6 +146,24 @@ spec:
               value: {{ .Chart.AppVersion | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.config.tls.additionalCaBundle.configMapKeyRef }}
+      volumes:
+        - name: platform-additional-ca
+          configMap:
+            name: {{ .name | quote }}
+            items:
+              - key: {{ .key | quote }}
+                path: platform-ca.pem
+      {{- end }}
+      {{- with .Values.config.tls.additionalCaBundle.secretKeyRef }}
+      volumes:
+        - name: platform-additional-ca
+          secret:
+            secretName: {{ .name | quote }}
+            items:
+              - key: {{ .key | quote }}
+                path: platform-ca.pem
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

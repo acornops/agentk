@@ -33,6 +33,12 @@ config:
   # Override the full WebSocket endpoint. Use only when the endpoint cannot be
   # derived from platformUrl (e.g. wss://agent.example.com/custom-agent-path).
   websocketUrl: ""
+  tls:
+    # Optional namespace-local CA bundle used to extend Node.js trust for the
+    # platform WebSocket connection.
+    additionalCaBundle:
+      configMapKeyRef: null
+      secretKeyRef: null
   # Control-plane cluster identifier issued during cluster registration.
   clusterId: ""
   # Agent authentication key issued by the AcornOps platform.

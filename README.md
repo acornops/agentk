@@ -151,6 +151,33 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-age
   --set-string existingSecret.key=agent-key
 ```
 
+To connect to a platform certificate signed by an organization-private CA,
+reference an existing CA bundle in the AgentK release namespace:
+
+```yaml
+config:
+  platformUrl: https://api.acornops.example
+  tls:
+    additionalCaBundle:
+      configMapKeyRef:
+        name: organization-platform-trust
+        key: ca.crt
+```
+
+Use `secretKeyRef` with the same `name` and `key` fields when the bundle is
+distributed as a Secret. The sources are mutually exclusive and fail closed
+when the selected resource or key is missing. AgentK mounts the bundle
+read-only and uses `NODE_EXTRA_CA_CERTS`, which extends Node.js public CA trust
+without disabling hostname or certificate verification. The resource must be
+distributed into the release namespace of every affected workload cluster.
+
+Bundle changes require an AgentK restart. Rotate private roots with an old/new
+overlap, restart AgentK, rotate the platform certificate, then remove the old
+root and restart again. See the
+[chart guide](charts/acornops-agentk/README.md#additional-platform-ca-trust) for
+Secret configuration, trust-manager compatibility, commands, and failure-mode
+troubleshooting.
+
 The chart defaults to cluster-wide read-only RBAC. Write tools require an explicit opt-in:
 
 ```bash

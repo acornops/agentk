@@ -3,3 +3,5 @@
 Move finished plans here after the work lands.
 
 Keep only completed plans that remain useful as durable design or validation context.
+
+- [Platform additional CA trust](platform-additional-ca-trust.md)

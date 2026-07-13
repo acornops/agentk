@@ -22,6 +22,57 @@
       "properties": {
         "platformUrl": { "type": "string" },
         "websocketUrl": { "type": "string" },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "additionalCaBundle": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "configMapKeyRef": {
+                  "oneOf": [
+                    { "type": "null" },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["name", "key"],
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1 },
+                        "key": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  ]
+                },
+                "secretKeyRef": {
+                  "oneOf": [
+                    { "type": "null" },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["name", "key"],
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1 },
+                        "key": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "not": {
+                    "required": ["configMapKeyRef", "secretKeyRef"],
+                    "properties": {
+                      "configMapKeyRef": { "type": "object" },
+                      "secretKeyRef": { "type": "object" }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
         "clusterId": { "type": "string" },
         "agentKey": { "type": "string" },
         "watchNamespaces": { "type": "string" },

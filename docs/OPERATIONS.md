@@ -36,6 +36,44 @@ kubectl -n acornops rollout status deployment/acornops-agent
 kubectl -n acornops logs -f deployment/acornops-agent
 ```
 
+### Additional platform CA trust
+
+When the platform WebSocket certificate uses an organization-private CA,
+publish a PEM CA bundle as a ConfigMap or Secret in the AgentK release namespace
+of each workload cluster. Configure one source:
+
+```yaml
+config:
+  platformUrl: https://api.acornops.example
+  tls:
+    additionalCaBundle:
+      configMapKeyRef:
+        name: organization-platform-trust
+        key: ca.crt
+```
+
+For a Secret source, replace `configMapKeyRef` with `secretKeyRef`. Both `name`
+and `key` are required. The resource is namespace-local and must already exist;
+a missing resource or selected key prevents the pod from starting. A ConfigMap
+produced in each namespace by cert-manager trust-manager is supported, but the
+chart does not install or require trust-manager.
+
+AgentK mounts the selected key read-only at
+`/etc/acornops/trust/platform-ca.pem` and sets `NODE_EXTRA_CA_CERTS` to that
+path. This extends Node.js public trust while preserving certificate and
+hostname verification. It does not alter Kubernetes API trust or the AgentK
+authentication Secret.
+
+Node.js reads the bundle only at startup, and the `subPath` mount does not
+refresh inside an existing container. Rotate with an overlap: publish old and
+new roots, restart AgentK, rotate the platform certificate, verify WebSocket
+handshake/heartbeats/snapshots, remove the old root, and restart AgentK again.
+
+```bash
+kubectl -n acornops rollout restart deployment/<agentk-deployment>
+kubectl -n acornops rollout status deployment/<agentk-deployment>
+```
+
 ## Snapshot Scalability
 
 The snapshot pipeline uses a Kubernetes watch-backed local cache by default. The agent still sends periodic compact `notify/snapshot` payloads to the control plane, but steady-state resource changes come from watch streams and debounced change-triggered snapshots instead of full-list polling on every interval.
@@ -44,13 +82,24 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
 
 ## Failure Modes
 
-- Agent cannot connect: verify `ACORNOPS_AGENT_PLATFORM_URL`, DNS, TLS, and the platform `/api/v1/agent/connect` route.
+- Agent cannot connect: verify `ACORNOPS_AGENT_PLATFORM_URL`, DNS, TLS, and the platform `/api/v1/agent/connect` route. With additional CA trust enabled, inspect pod events for a missing ConfigMap, Secret, or key; repeated issuer errors indicate a wrong or incomplete bundle, while hostname mismatches and expired certificates must be fixed at the platform endpoint.
 - Authentication rejected: rotate or reissue the cluster agent key from the control plane.
 - No telemetry: verify Kubernetes RBAC, namespace scope, metrics-server availability, and collector logs.
 - Slow or skipped telemetry: inspect `watch-manager` and `snapshot-manager` logs, increase the snapshot interval if collection takes too long, then tune `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` if list fallback or relist recovery is the bottleneck.
 - HA does not elect a leader: verify Lease RBAC and `leaderElection.enabled=true`.
 - Tool rejected before execution: verify handshake session policy, local namespace maximum, and write enablement.
 - Write tool times out, or Kubernetes accepts a mutation but returns a result that AgentK cannot verify: treat the outcome as unknown, retain the returned operation ID, and inspect the resource before deciding whether to retry the same tool call ID.
+
+Verify the mounted bundle without printing it:
+
+```bash
+kubectl -n acornops exec deployment/<agentk-deployment> -- \
+  sh -c 'test -r "$NODE_EXTRA_CA_CERTS" && echo "additional CA file is readable"'
+```
+
+TLS success followed by a closed connection points to WebSocket routing or
+authentication rather than CA trust. DNS failures, timeouts, and connection
+refusals require network investigation.
 
 ## Tool Safety Defaults
 

@@ -17,6 +17,21 @@
 - Keep `ACORNOPS_AGENT_WRITE_ENABLED` explicit and reviewable.
 - Treat kubeconfig rewrites and local TLS-skip settings as development-only hazards.
 
+## Platform TLS Trust
+
+- Optional private-CA trust references an existing namespace-local ConfigMap or
+  Secret; the chart never accepts or renders inline PEM.
+- `NODE_EXTRA_CA_CERTS` adds the fixed read-only bundle to Node.js's public
+  roots while preserving certificate validity and hostname verification.
+- The additional trust is process-wide for Node.js outbound TLS. It does not
+  change Kubernetes API trust, which remains owned by in-cluster configuration
+  or kubeconfig.
+- The source is not optional: missing resources and keys fail pod startup.
+- Agent authentication material remains independent from CA trust material,
+  and certificate contents must not be logged.
+- TLS bypass values such as `skipTlsVerify`, `rejectUnauthorized`, and
+  `NODE_TLS_REJECT_UNAUTHORIZED=0` are not supported.
+
 ## High-Risk Changes
 
 - Handshake or websocket auth behavior

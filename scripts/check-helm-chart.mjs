@@ -46,6 +46,15 @@ function expectFailure(args, message) {
   throw new Error(`Expected helm template to fail: ${message}`);
 }
 
+function expectAnyFailure(args, message) {
+  try {
+    helmTemplate(args);
+  } catch {
+    return;
+  }
+  throw new Error(`Expected helm template to fail: ${message}`);
+}
+
 const baseArgs = [
   '--set-string',
   'config.platformUrl=https://api.acornops.dev',
@@ -53,6 +62,20 @@ const baseArgs = [
   'config.clusterId=cluster-1',
   '--set-string',
   'config.agentKey=test-key'
+];
+const additionalCaValuesPath = 'config.tls.additionalCaBundle';
+const additionalCaPath = '/etc/acornops/trust/platform-ca.pem';
+const configMapCaArgs = [
+  '--set-string',
+  `${additionalCaValuesPath}.configMapKeyRef.name=organization-configmap-trust`,
+  '--set-string',
+  `${additionalCaValuesPath}.configMapKeyRef.key=configmap-ca.crt`
+];
+const secretCaArgs = [
+  '--set-string',
+  `${additionalCaValuesPath}.secretKeyRef.name=organization-secret-trust`,
+  '--set-string',
+  `${additionalCaValuesPath}.secretKeyRef.key=secret-ca.pem`
 ];
 
 const readOnly = helmTemplate(baseArgs);
@@ -83,6 +106,52 @@ assertIncludes(
   'cluster RBAC should allow namespace discovery'
 );
 assertIncludes(readOnly, 'kind: Secret', 'default install should create the agent key Secret');
+assertExcludes(readOnly, 'platform-additional-ca', 'default chart should not render an additional CA volume or mount');
+assertExcludes(readOnly, 'NODE_EXTRA_CA_CERTS', 'default chart should not configure Node.js additional CA trust');
+assertExcludes(readOnly, additionalCaPath, 'default chart should not render the fixed additional CA path');
+assertExcludes(readOnly, 'NODE_TLS_REJECT_UNAUTHORIZED', 'chart must not disable Node.js TLS verification');
+
+const configMapCa = helmTemplate([...baseArgs, ...configMapCaArgs]);
+assertMatch(
+  configMapCa,
+  new RegExp(`name: NODE_EXTRA_CA_CERTS\\s+value: "${additionalCaPath}"`),
+  'ConfigMap CA should configure Node.js with the fixed path'
+);
+assertMatch(
+  configMapCa,
+  new RegExp(`name: platform-additional-ca\\s+mountPath: "${additionalCaPath}"\\s+subPath: platform-ca.pem\\s+readOnly: true`),
+  'ConfigMap CA should use the fixed read-only mount'
+);
+assertMatch(
+  configMapCa,
+  /name: platform-additional-ca\s+configMap:\s+name: "organization-configmap-trust"\s+items:\s+- key: "configmap-ca\.crt"\s+path: platform-ca\.pem/,
+  'ConfigMap CA should map the configured resource key to the fixed filename'
+);
+assertExcludes(configMapCa, 'optional:', 'ConfigMap CA source should fail closed when the resource or key is missing');
+
+const secretCa = helmTemplate([...baseArgs, ...secretCaArgs]);
+assertMatch(
+  secretCa,
+  new RegExp(`name: NODE_EXTRA_CA_CERTS\\s+value: "${additionalCaPath}"`),
+  'Secret CA should configure Node.js with the fixed path'
+);
+assertMatch(
+  secretCa,
+  new RegExp(`name: platform-additional-ca\\s+mountPath: "${additionalCaPath}"\\s+subPath: platform-ca.pem\\s+readOnly: true`),
+  'Secret CA should use the fixed read-only mount'
+);
+assertMatch(
+  secretCa,
+  /name: platform-additional-ca\s+secret:\s+secretName: "organization-secret-trust"\s+items:\s+- key: "secret-ca\.pem"\s+path: platform-ca\.pem/,
+  'Secret CA should map the configured resource key to the fixed filename'
+);
+assertExcludes(secretCa, 'optional:', 'Secret CA source should fail closed when the resource or key is missing');
+
+for (const caRender of [configMapCa, secretCa]) {
+  assertExcludes(caRender, 'NODE_TLS_REJECT_UNAUTHORIZED', 'additional CA trust must preserve TLS verification');
+  assertExcludes(caRender, 'BEGIN CERTIFICATE', 'chart must not render inline CA certificate material');
+  assertExcludes(caRender, 'BEGIN PRIVATE KEY', 'chart must not render private key material');
+}
 
 const writeEnabled = helmTemplate([...baseArgs, '--set', 'rbac.write.enabled=true']);
 assertMatch(writeEnabled, /name: ACORNOPS_AGENT_WRITE_ENABLED\s+value: "true"/, 'write env should follow rbac.write.enabled');
@@ -222,5 +291,95 @@ expectFailure([
 expectFailure([...baseArgs, '--set', 'replicaCount=2'], 'leaderElection.enabled must be true when replicaCount is greater than 1');
 expectFailure([...baseArgs, '--set', 'leaderElection.renewDeadlineMs=15000'], 'leaderElection.renewDeadlineMs must be less than leaderElection.leaseDurationMs');
 expectFailure([...baseArgs, '--set', 'leaderElection.retryPeriodMs=11000'], 'leaderElection.retryPeriodMs must be less than or equal to leaderElection.renewDeadlineMs');
+
+for (const [args, message] of [
+  [[...configMapCaArgs, ...secretCaArgs], 'ConfigMap and Secret CA sources should be mutually exclusive'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.key=ca.crt`
+  ], 'ConfigMap CA source should require a name'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.name=organization-trust`
+  ], 'ConfigMap CA source should require a key'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.name=`,
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.key=ca.crt`
+  ], 'ConfigMap CA source should reject an empty name'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.name=organization-trust`,
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.key=`
+  ], 'ConfigMap CA source should reject an empty key'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.key=ca.crt`
+  ], 'Secret CA source should require a name'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.name=organization-trust`
+  ], 'Secret CA source should require a key'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.name=`,
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.key=ca.crt`
+  ], 'Secret CA source should reject an empty name'],
+  [[
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.name=organization-trust`,
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.key=`
+  ], 'Secret CA source should reject an empty key'],
+  [[...configMapCaArgs, '--set-string', `${additionalCaValuesPath}.configMapKeyRef.namespace=other`], 'cross-namespace CA fields should be rejected'],
+  [['--set-string', `${additionalCaValuesPath}.inlinePem=unsupported`], 'inline PEM fields should be rejected'],
+  [['--set', 'config.tls.skipTlsVerify=true'], 'TLS verification bypass fields should be rejected']
+]) {
+  expectAnyFailure([...baseArgs, ...args], message);
+}
+
+expectFailure(
+  ['--skip-schema-validation', ...baseArgs, ...configMapCaArgs, ...secretCaArgs],
+  'config.tls.additionalCaBundle must configure only one of configMapKeyRef or secretKeyRef'
+);
+expectFailure(
+  [
+    '--skip-schema-validation',
+    ...baseArgs,
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.key=ca.crt`
+  ],
+  'config.tls.additionalCaBundle.configMapKeyRef.name is required when configMapKeyRef is configured'
+);
+expectFailure(
+  [
+    '--skip-schema-validation',
+    ...baseArgs,
+    '--set-string',
+    `${additionalCaValuesPath}.configMapKeyRef.name=organization-trust`
+  ],
+  'config.tls.additionalCaBundle.configMapKeyRef.key is required when configMapKeyRef is configured'
+);
+expectFailure(
+  [
+    '--skip-schema-validation',
+    ...baseArgs,
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.key=ca.crt`
+  ],
+  'config.tls.additionalCaBundle.secretKeyRef.name is required when secretKeyRef is configured'
+);
+expectFailure(
+  [
+    '--skip-schema-validation',
+    ...baseArgs,
+    '--set-string',
+    `${additionalCaValuesPath}.secretKeyRef.name=organization-trust`
+  ],
+  'config.tls.additionalCaBundle.secretKeyRef.key is required when secretKeyRef is configured'
+);
 
 console.log('Helm chart template checks passed.');

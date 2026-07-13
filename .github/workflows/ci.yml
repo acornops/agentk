@@ -112,7 +112,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Lint Helm chart
-        run: helm lint charts/acornops-agentk --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key
+        run: |
+          helm lint charts/acornops-agentk --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key --strict
+          helm lint charts/acornops-agentk --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key --set-string config.tls.additionalCaBundle.configMapKeyRef.name=organization-trust --set-string config.tls.additionalCaBundle.configMapKeyRef.key=ca.crt --strict
+          helm lint charts/acornops-agentk --set-string config.platformUrl=https://api.acornops.dev --set-string config.clusterId=cluster-1 --set-string config.agentKey=test-key --set-string config.tls.additionalCaBundle.secretKeyRef.name=organization-trust --set-string config.tls.additionalCaBundle.secretKeyRef.key=ca.crt --strict
       - name: Check Helm templates
         run: node scripts/check-helm-chart.mjs
 

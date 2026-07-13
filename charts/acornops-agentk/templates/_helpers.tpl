@@ -83,6 +83,32 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{/* Validate and report whether an additional platform CA bundle is configured. */}}
+{{- define "acornops-agent.platformAdditionalCaEnabled" -}}
+{{- $bundle := .Values.config.tls.additionalCaBundle -}}
+{{- $configMapRef := $bundle.configMapKeyRef -}}
+{{- $secretKeyRef := $bundle.secretKeyRef -}}
+{{- $hasConfigMapRef := kindIs "map" $configMapRef -}}
+{{- $hasSecretKeyRef := kindIs "map" $secretKeyRef -}}
+{{- if and $hasConfigMapRef $hasSecretKeyRef -}}
+{{- fail "config.tls.additionalCaBundle must configure only one of configMapKeyRef or secretKeyRef" -}}
+{{- end -}}
+{{- if $hasConfigMapRef -}}
+{{- $_ := required "config.tls.additionalCaBundle.configMapKeyRef.name is required when configMapKeyRef is configured" $configMapRef.name -}}
+{{- $_ := required "config.tls.additionalCaBundle.configMapKeyRef.key is required when configMapKeyRef is configured" $configMapRef.key -}}
+true
+{{- else if $hasSecretKeyRef -}}
+{{- $_ := required "config.tls.additionalCaBundle.secretKeyRef.name is required when secretKeyRef is configured" $secretKeyRef.name -}}
+{{- $_ := required "config.tls.additionalCaBundle.secretKeyRef.key is required when secretKeyRef is configured" $secretKeyRef.key -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/* Fixed file path consumed by Node.js for additional platform CA trust. */}}
+{{- define "acornops-agent.platformAdditionalCaPath" -}}
+/etc/acornops/trust/platform-ca.pem
+{{- end -}}
+
 {{- define "acornops-agent.rbacNamespaces" -}}
 {{- $namespaces := .Values.rbac.namespaces | default list -}}
 {{- if $namespaces -}}
