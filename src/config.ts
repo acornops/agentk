@@ -76,7 +76,7 @@ const configSchema = z.object({
   ACORNOPS_AGENT_POD_NAME: z.string().optional().default(''),
   ACORNOPS_AGENT_POD_UID: z.string().optional().default(''),
   ACORNOPS_AGENT_POD_NAMESPACE: z.string().optional().default(''),
-  AGENT_VERSION: z.string().default('0.0.1-experimental.1'),
+  AGENT_VERSION: z.string().default('0.0.1-experimental.7'),
 }).superRefine((cfg, ctx) => {
   let platformUrl: URL | undefined;
   try {

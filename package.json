@@ -1,6 +1,6 @@
 {
   "name": "acornops-agentk",
-  "version": "0.0.1-experimental.6",
+  "version": "0.0.1-experimental.7",
   "description": "AcornOps Kubernetes workload-cluster agent.",
   "type": "module",
   "main": "dist/index.js",

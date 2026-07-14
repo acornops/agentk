@@ -2,8 +2,8 @@ apiVersion: v2
 name: acornops-agentk
 description: AcornOps Kubernetes agent for outbound cluster telemetry and tool execution.
 type: application
-version: 0.0.1-experimental.6
-appVersion: "0.0.1-experimental.6"
+version: 0.0.1-experimental.7
+appVersion: "0.0.1-experimental.7"
 home: https://github.com/acornops/agentk
 sources:
   - https://github.com/acornops/agentk

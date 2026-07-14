@@ -73,7 +73,7 @@ expectIncludes(agents, '.agents/skills/local', 'AGENTS local skills guidance');
 expectIncludes(agents, 'docs/AGENT_HANDOFF.md', 'AGENTS handoff guidance');
 expectIncludes(agents, 'Docs impact: none', 'AGENTS docs impact guidance');
 expect(packageJson.name === 'acornops-agentk', 'package.json name should identify the Kubernetes agent package');
-expect(packageJson.version === '0.0.1-experimental.6', 'package.json version should match the current experimental component version');
+expect(packageJson.version === '0.0.1-experimental.7', 'package.json version should match the current experimental component version');
 expect(Boolean(packageJson.scripts?.validate), 'package.json should expose a canonical validate script');
 expectIncludes(packageJson.scripts.validate, 'npm run test', 'Canonical validate script');
 expectIncludes(packageJson.scripts.validate, 'npm run contracts:check', 'Canonical validate script');

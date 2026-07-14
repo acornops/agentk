@@ -1,6 +1,6 @@
 services:
   acornops-agentk:
-    image: ${ACORNOPS_AGENT_IMAGE:-ghcr.io/acornops/agentk:0.0.1-experimental.2}
+    image: ${ACORNOPS_AGENT_IMAGE:-ghcr.io/acornops/agentk:0.0.1-experimental.7}
     environment:
       ACORNOPS_AGENT_PLATFORM_URL: ${ACORNOPS_AGENT_PLATFORM_URL:-ws://control-plane:8081/api/v1/agent/connect}
       ACORNOPS_CLUSTER_ID: ${ACORNOPS_CLUSTER_ID:-change-me-cluster}
