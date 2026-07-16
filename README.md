@@ -370,7 +370,8 @@ Apply the RBAC and Deployment manifests:
 # Apply RBAC
 kubectl apply -f deploy/rbac.yaml
 
-# Use the local development manifest which is pre-configured for the mock platform
+# Use the local development manifest, which adds least-privilege workload patch
+# RBAC because this legacy development deployment explicitly enables write tools
 kubectl apply -f deploy/local-development.yaml
 ```
 

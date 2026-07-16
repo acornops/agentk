@@ -237,7 +237,11 @@ describe('scaleWorkloadTool', () => {
       { kind: 'Deployment', name: 'api', namespace: 'default', replicas: 4, reason: 'scale' },
       { operationId: 'op-unknown', requestId: 1, sessionGeneration: 1 },
     )).rejects.toMatchObject({
-      toolCode: 'KUBERNETES_ERROR', data: { outcome: 'unknown', operationId: 'op-unknown' },
+      toolCode: 'KUBERNETES_ERROR',
+      data: {
+        outcome: 'unknown', operationId: 'op-unknown',
+        reason: 'PostWriteVerificationFailed', phase: 'verification',
+      },
     });
   });
 });

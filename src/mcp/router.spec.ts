@@ -7,6 +7,20 @@ import { FULL_TOOL_RESULT_OUTPUT_SCHEMA } from '../tools/model-context.js';
 import { config } from '../config.js';
 import { ToolExecutionError } from '../tools/errors.js';
 
+const logSpies = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+}));
+
+vi.mock('pino', () => {
+  const logger = {
+    ...logSpies,
+    child: () => logger,
+  };
+  return { default: () => logger };
+});
+
 const projectionFields = {
   outputSchema: FULL_TOOL_RESULT_OUTPUT_SCHEMA,
   artifactPolicy: 'never' as const,
@@ -237,6 +251,63 @@ describe('MCP Router', () => {
       isError: true,
       structuredContent: { data: { code: 'INTERNAL_ERROR', outcome: 'unknown', retryable: false } },
     });
+    expect(logSpies.error).toHaveBeenCalledWith({
+      tool: 'write_projection_failure',
+      code: 'INTERNAL_ERROR',
+      reason: 'ResultProjectionFailed',
+      phase: 'result_projection',
+      retryable: false,
+    }, 'Tool execution failed');
+  });
+
+  it('logs only allowlisted tool failure diagnostics', async () => {
+    config.ACORNOPS_AGENT_WRITE_ENABLED = true;
+    toolRegistry.register({
+      name: 'sanitized_failure',
+      description: 'Fails with safe and sensitive diagnostic fields',
+      capability: 'write',
+      timeoutMs: 1000,
+      version: 'v1',
+      ...projectionFields,
+      schema: z.object({ namespace: z.string(), token: z.string() }).strict(),
+      scopeResolver: (args) => ({ type: 'namespaced', namespace: args.namespace }),
+      handler: vi.fn().mockRejectedValue(new ToolExecutionError(
+        'KUBERNETES_ERROR',
+        'raw exception message must not be logged',
+        {
+          status: 503,
+          reason: 'Unavailable',
+          phase: 'kubernetes_api',
+          outcome: 'unknown',
+          namespace: 'customer-secret',
+          rawResponse: { token: 'upstream-secret' },
+        },
+      )),
+    });
+    mcpRouter.setSessionPolicy({
+      allowedTools: new Set(['sanitized_failure']), writeEnabled: true, generation: 1,
+    });
+
+    await mcpRouter.handleRequest(createRequest('tools/call', {
+      name: 'sanitized_failure',
+      arguments: { namespace: 'customer-secret', token: 'caller-secret' },
+    }, 32));
+
+    expect(logSpies.error).toHaveBeenCalledWith({
+      tool: 'sanitized_failure',
+      code: 'KUBERNETES_ERROR',
+      status: 503,
+      reason: 'Unavailable',
+      phase: 'kubernetes_api',
+      outcome: 'unknown',
+      operationId: expect.stringMatching(/^[a-f0-9]{24}$/),
+      retryable: false,
+    }, 'Tool execution failed');
+    const logged = JSON.stringify(logSpies.error.mock.calls.at(-1));
+    expect(logged).not.toContain('customer-secret');
+    expect(logged).not.toContain('caller-secret');
+    expect(logged).not.toContain('upstream-secret');
+    expect(logged).not.toContain('raw exception message');
   });
 
   it('never marks an unknown write outcome as retryable', async () => {

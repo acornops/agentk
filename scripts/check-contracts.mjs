@@ -34,6 +34,7 @@ const scaleWorkload = read('src/tools/atomic/scale.ts');
 const patchResource = read('src/tools/atomic/patch-resource.ts');
 const manualDeployment = read('deploy/deployment.yaml');
 const manualRbac = read('deploy/rbac.yaml');
+const localDevelopment = read('deploy/local-development.yaml');
 const controlPlaneContract = manifest.counterparts?.['control-plane'];
 
 expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)', 'README contract link');
@@ -130,6 +131,14 @@ expect(
 expect(
   !/resources: \["deployments", "statefulsets", "daemonsets"\]\s+verbs: \["patch"\]/.test(manualRbac),
   'Manual RBAC must not grant workload patch access'
+);
+expect(
+  /name: ACORNOPS_AGENT_WRITE_ENABLED\s+value: "true"/.test(localDevelopment),
+  'Local development deployment must explicitly enable write tools'
+);
+expect(
+  /resources: \["deployments", "statefulsets", "daemonsets"\]\s+verbs: \["patch"\]/.test(localDevelopment),
+  'Write-enabled local development RBAC must grant supported workload patch access'
 );
 
 if (failures.length > 0) {

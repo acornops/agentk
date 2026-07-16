@@ -94,6 +94,14 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
 - Tool rejected before execution: verify handshake session policy, local namespace maximum, and write enablement.
 - Write tool times out, or Kubernetes accepts a mutation but returns a result that AgentK cannot verify: treat the outcome as unknown, retain the returned operation ID, and inspect the resource before deciding whether to retry the same tool call ID.
 
+Tool failure logs expose only an allowlisted operational projection: `tool`,
+stable `code`, `retryable`, and, when available, numeric Kubernetes `status`,
+stable `reason`, execution `phase`, write `outcome`, and generated `operationId`.
+Use these fields to distinguish API rejection, execution timeout, result
+processing, and post-write verification failures. AgentK intentionally excludes
+tool arguments, resource names and namespaces, exception messages, and raw
+Kubernetes response bodies from these logs.
+
 Verify the mounted bundle without printing it:
 
 ```bash

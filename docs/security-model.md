@@ -62,6 +62,9 @@
   resource-version tests, pass Kubernetes dry-run, and then apply the identical
   guarded patch.
 - Pod logs are sensitive application data. AgentK bounds but does not persist or log tool results.
+- Tool failure logs use a fixed allowlist of identity-free status, reason, phase,
+  outcome, and operation-correlation fields. Raw exceptions, Kubernetes bodies,
+  tool arguments, and resource identities remain excluded.
 - Namespace policy constrains namespaced objects but does not narrow existing
   Node visibility. Node objects and node metrics remain subject to Kubernetes
   RBAC, preserving the installation's pre-hardening cluster-health behavior.

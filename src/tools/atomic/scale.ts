@@ -135,7 +135,7 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
       updated.metadata?.annotations?.['acornops.dev/requested-replicas'] !== String(params.replicas) ||
       updated.metadata?.annotations?.['acornops.dev/hpa-override'] !== String(managedByHpa)) {
     throw new ToolExecutionError('KUBERNETES_ERROR', 'Kubernetes accepted the scale but returned an inconsistent workload', {
-      outcome: 'unknown', operationId,
+      outcome: 'unknown', operationId, reason: 'PostWriteVerificationFailed', phase: 'verification',
     });
   }
   return buildReceipt(params, updated, operationId, previousReplicas, managedByHpa);

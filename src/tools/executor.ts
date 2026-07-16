@@ -212,6 +212,8 @@ export class ToolExecutor {
     const release = await this.gates[tool.capability].acquire(tool.timeoutMs, {
       outcome: 'not_started',
       operationId,
+      reason: 'ExecutionQueueDeadlineExceeded',
+      phase: 'queue',
     });
     let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
@@ -225,6 +227,8 @@ export class ToolExecutor {
         throw new ToolExecutionError('TOOL_TIMEOUT', `Tool '${tool.name}' timed out`, {
           outcome: 'not_started',
           operationId,
+          reason: 'ExecutionDeadlineExceeded',
+          phase: 'execution',
         });
       }
 
@@ -242,7 +246,12 @@ export class ToolExecutor {
           reject(new ToolExecutionError(
             'TOOL_TIMEOUT',
             `Tool '${tool.name}' timed out`,
-            tool.capability === 'write' ? { outcome: 'unknown', operationId } : { operationId }
+            {
+              ...(tool.capability === 'write' ? { outcome: 'unknown' } : {}),
+              operationId,
+              reason: 'ExecutionDeadlineExceeded',
+              phase: 'execution',
+            }
           ));
         }, Math.max(1, deadline - Date.now()));
       });
@@ -252,10 +261,14 @@ export class ToolExecutor {
         : undefined);
       const serializedResult = JSON.stringify(result);
       if (serializedResult === undefined) {
-        throw new ToolExecutionError('KUBERNETES_ERROR', 'Tool returned no result');
+        throw new ToolExecutionError('KUBERNETES_ERROR', 'Tool returned no result', {
+          reason: 'ToolResultMissing', phase: 'result_processing',
+        });
       }
       if (Buffer.byteLength(serializedResult) > config.ACORNOPS_AGENT_TOOL_MAX_OUTPUT_BYTES) {
-        throw new ToolExecutionError('OUTPUT_TOO_LARGE', 'Tool result exceeds the configured size limit');
+        throw new ToolExecutionError('OUTPUT_TOO_LARGE', 'Tool result exceeds the configured size limit', {
+          reason: 'ToolResultTooLarge', phase: 'result_processing',
+        });
       }
       return result;
     } catch (err) {
@@ -263,12 +276,16 @@ export class ToolExecutor {
         throw withUnknownWriteOutcome(err, tool.capability, operationId);
       }
       if (isKubernetesPreconditionFailure(err)) {
-        throw new ToolExecutionError('PRECONDITION_FAILED', 'Kubernetes resource precondition failed');
+        throw new ToolExecutionError('PRECONDITION_FAILED', 'Kubernetes resource precondition failed', {
+          reason: 'KubernetesPreconditionFailed', phase: 'kubernetes_api',
+        });
       }
       const mappedError = mapKubernetesError(err, parsed.data);
       if (mappedError) throw withUnknownWriteOutcome(mappedError, tool.capability, operationId);
       throw withUnknownWriteOutcome(
-        new ToolExecutionError('KUBERNETES_ERROR', 'Kubernetes operation failed'),
+        new ToolExecutionError('KUBERNETES_ERROR', 'Kubernetes operation failed', {
+          reason: 'UnclassifiedKubernetesClientError', phase: 'kubernetes_api',
+        }),
         tool.capability,
         operationId,
       );

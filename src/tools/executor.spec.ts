@@ -192,7 +192,11 @@ describe('ToolExecutor', () => {
       policy: { allowedTools: new Set(['slow_write']), writeEnabled: true, generation: 2 },
     });
     const rejection = expect(call).rejects.toSatisfy((err: ToolExecutionError) =>
-      err.toolCode === 'TOOL_TIMEOUT' && err.data?.outcome === 'unknown' && typeof err.data?.operationId === 'string'
+      err.toolCode === 'TOOL_TIMEOUT'
+      && err.data?.outcome === 'unknown'
+      && err.data?.reason === 'ExecutionDeadlineExceeded'
+      && err.data?.phase === 'execution'
+      && typeof err.data?.operationId === 'string'
     );
     await vi.advanceTimersByTimeAsync(11);
     await rejection;
@@ -212,6 +216,8 @@ describe('ToolExecutor', () => {
     })).rejects.toSatisfy((err: ToolExecutionError) => (
       err.toolCode === 'KUBERNETES_UNAVAILABLE'
       && err.data?.outcome === 'unknown'
+      && err.data?.reason === 'Unavailable'
+      && err.data?.phase === 'kubernetes_api'
       && typeof err.data?.operationId === 'string'
     ));
   });
@@ -250,7 +256,10 @@ describe('ToolExecutor', () => {
     await expect(toolExecutor.execute({
       name: 'large_read', arguments: {}, requestId: 6,
       policy: { allowedTools: new Set(['large_read']), writeEnabled: false, generation: 1 },
-    })).rejects.toMatchObject({ toolCode: 'OUTPUT_TOO_LARGE' });
+    })).rejects.toMatchObject({
+      toolCode: 'OUTPUT_TOO_LARGE',
+      data: { reason: 'ToolResultTooLarge', phase: 'result_processing' },
+    });
   });
 
   it('rejects inputs beyond the configured serialized payload limit', async () => {
@@ -276,7 +285,7 @@ describe('ToolExecutor', () => {
       version: 'v1',
       schema: z.object({}).strict(),
       scopeResolver: () => ({ type: 'namespace-collection' }),
-      handler: async () => { throw Object.assign(new Error('resource version changed'), { statusCode: 409 }); },
+      handler: async () => { throw Object.assign(new Error('resource version changed'), { code: 409 }); },
     });
 
     await expect(toolExecutor.execute({
@@ -328,6 +337,39 @@ describe('ToolExecutor', () => {
         name: 'missing-api',
         namespace: 'demo',
       },
+    });
+  });
+
+  it.each([
+    [404, 'RESOURCE_NOT_FOUND', 'NotFound'],
+    [403, 'KUBERNETES_FORBIDDEN', 'Forbidden'],
+    [408, 'KUBERNETES_TIMEOUT', 'Timeout'],
+    [503, 'KUBERNETES_UNAVAILABLE', 'Unavailable'],
+  ])('maps client-node ApiException code %s to %s', async (code, toolCode, reason) => {
+    toolRegistry.register({
+      name: 'api_exception_read',
+      description: 'read',
+      capability: 'read',
+      timeoutMs: 1000,
+      version: 'v1',
+      schema: z.object({ kind: z.string(), name: z.string(), namespace: z.string() }).strict(),
+      scopeResolver: (args) => ({ type: 'namespaced', namespace: args.namespace }),
+      handler: async () => {
+        throw Object.assign(new Error('raw ApiException must not cross the boundary'), {
+          code,
+          body: { reason, message: 'sensitive upstream detail' },
+        });
+      },
+    });
+
+    await expect(toolExecutor.execute({
+      name: 'api_exception_read',
+      arguments: { kind: 'Deployment', name: 'api', namespace: 'demo' },
+      requestId: `api-exception-${String(code)}`,
+      policy: { allowedTools: new Set(['api_exception_read']), writeEnabled: false, generation: 1 },
+    })).rejects.toMatchObject({
+      toolCode,
+      data: { status: code, reason, kind: 'Deployment', name: 'api', namespace: 'demo' },
     });
   });
 

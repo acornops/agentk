@@ -224,7 +224,13 @@ describe('patchResourceTool', () => {
     ).catch((cause) => cause);
 
     expect(error).toBeInstanceOf(ToolExecutionError);
-    expect(error).toMatchObject({ toolCode: 'KUBERNETES_ERROR', data: { outcome: 'unknown', operationId: 'op-unknown' } });
+    expect(error).toMatchObject({
+      toolCode: 'KUBERNETES_ERROR',
+      data: {
+        outcome: 'unknown', operationId: 'op-unknown',
+        reason: 'PostWriteVerificationFailed', phase: 'verification',
+      },
+    });
   });
 
   it('supports DaemonSet image changes without exposing replica mutation', async () => {

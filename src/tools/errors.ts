@@ -16,6 +16,32 @@ export const TOOL_RPC_ERRORS = {
 
 export type ToolErrorCode = keyof typeof TOOL_RPC_ERRORS;
 
+const LOG_SAFE_REASONS = new Set([
+  'NotFound',
+  'Unauthorized',
+  'Forbidden',
+  'Timeout',
+  'TooManyRequests',
+  'Unavailable',
+  'ExecutionQueueDeadlineExceeded',
+  'ExecutionDeadlineExceeded',
+  'ToolResultMissing',
+  'ToolResultTooLarge',
+  'KubernetesPreconditionFailed',
+  'UnclassifiedKubernetesClientError',
+  'PostWriteVerificationFailed',
+  'ResultProjectionFailed',
+]);
+const LOG_SAFE_PHASES = new Set([
+  'queue',
+  'execution',
+  'kubernetes_api',
+  'verification',
+  'result_processing',
+  'result_projection',
+]);
+const LOG_SAFE_OUTCOMES = new Set(['not_started', 'unknown']);
+
 /** A sanitized error that may cross the AgentK JSON-RPC boundary. */
 export class ToolExecutionError extends Error {
   /** Create a boundary-safe tool execution error. */
@@ -33,18 +59,38 @@ export class ToolExecutionError extends Error {
   }
 }
 
+/** Project one tool error into allowlisted, identity-free operational fields. */
+export function toolErrorLogContext(err: unknown): Record<string, unknown> {
+  if (!(err instanceof ToolExecutionError)) return { code: 'INTERNAL_ERROR' };
+  const data = err.data || {};
+  const context: Record<string, unknown> = { code: err.toolCode };
+  if (Number.isInteger(data.status) && Number(data.status) >= 100 && Number(data.status) <= 599) {
+    context.status = data.status;
+  }
+  if (typeof data.reason === 'string' && LOG_SAFE_REASONS.has(data.reason)) {
+    context.reason = data.reason;
+  }
+  if (typeof data.phase === 'string' && LOG_SAFE_PHASES.has(data.phase)) {
+    context.phase = data.phase;
+  }
+  if (typeof data.outcome === 'string' && LOG_SAFE_OUTCOMES.has(data.outcome)) {
+    context.outcome = data.outcome;
+  }
+  if (typeof data.operationId === 'string' &&
+      (/^[a-f0-9]{24}$/.test(data.operationId) || /^direct-\d{1,16}$/.test(data.operationId))) {
+    context.operationId = data.operationId;
+  }
+  return context;
+}
+
 /** Return whether an unknown Kubernetes client failure is a not-found response. */
 export function isKubernetesNotFound(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const value = err as Record<string, any>;
-  return value.statusCode === 404 || value.status === 404 || value.response?.statusCode === 404 || value.response?.status === 404;
+  return kubernetesStatus(err) === 404;
 }
 
 /** Return whether Kubernetes rejected a resource-version or JSON Patch precondition. */
 export function isKubernetesPreconditionFailure(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const value = err as Record<string, any>;
-  const status = value.statusCode ?? value.status ?? value.response?.statusCode ?? value.response?.status;
+  const status = kubernetesStatus(err);
   return status === 409 || status === 422;
 }
 
@@ -52,7 +98,16 @@ export function isKubernetesPreconditionFailure(err: unknown): boolean {
 function kubernetesStatus(err: unknown): number | undefined {
   if (!err || typeof err !== 'object') return undefined;
   const value = err as Record<string, any>;
-  const status = value.statusCode ?? value.status ?? value.response?.statusCode ?? value.response?.status;
+  // @kubernetes/client-node ApiException exposes the HTTP status as `code`.
+  // Retain the older client and wrapper shapes because watches and test doubles
+  // still use status/statusCode in some paths.
+  const status = value.statusCode
+    ?? value.status
+    ?? value.response?.statusCode
+    ?? value.response?.status
+    ?? value.code
+    ?? value.body?.code
+    ?? value.response?.body?.code;
   const parsed = typeof status === 'string' ? Number(status) : status;
   return Number.isInteger(parsed) ? parsed : undefined;
 }
@@ -82,6 +137,7 @@ export function mapKubernetesError(err: unknown, args?: unknown): ToolExecutionE
       {
       status: 404,
       reason: 'NotFound',
+      phase: 'kubernetes_api',
       ...context,
       }
     );
@@ -90,6 +146,7 @@ export function mapKubernetesError(err: unknown, args?: unknown): ToolExecutionE
     return new ToolExecutionError('KUBERNETES_FORBIDDEN', 'Kubernetes denied access to the requested resource', {
       status,
       reason: status === 401 ? 'Unauthorized' : 'Forbidden',
+      phase: 'kubernetes_api',
       ...context,
     });
   }
@@ -99,6 +156,7 @@ export function mapKubernetesError(err: unknown, args?: unknown): ToolExecutionE
     return new ToolExecutionError('KUBERNETES_TIMEOUT', 'Kubernetes request timed out', {
       ...(status ? { status } : {}),
       reason: 'Timeout',
+      phase: 'kubernetes_api',
       ...context,
     });
   }
@@ -107,6 +165,7 @@ export function mapKubernetesError(err: unknown, args?: unknown): ToolExecutionE
     return new ToolExecutionError('KUBERNETES_UNAVAILABLE', 'Kubernetes API is temporarily unavailable', {
       ...(status ? { status } : {}),
       reason: status === 429 ? 'TooManyRequests' : 'Unavailable',
+      phase: 'kubernetes_api',
       ...context,
     });
   }

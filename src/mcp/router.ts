@@ -9,7 +9,7 @@ import {
 } from './protocol.js';
 import { toolRegistry } from '../tools/registry.js';
 import { zodToJsonSchema } from '../tools/json-schema.js';
-import { ToolExecutionError } from '../tools/errors.js';
+import { ToolExecutionError, toolErrorLogContext } from '../tools/errors.js';
 import { ToolSessionPolicy, toolExecutor } from '../tools/executor.js';
 import { buildCallToolResult } from '../tools/model-context.js';
 
@@ -100,18 +100,26 @@ export class McpRouter {
       const context = tool.projectForModel(result, args || {});
       return createResponse(request.id, buildCallToolResult(context, result, tool.artifactPolicy));
     } catch (err: any) {
-      logger.error({ tool: name, code: err instanceof ToolExecutionError ? err.toolCode : 'INTERNAL_ERROR' }, 'Tool execution failed');
-      const error = err instanceof ToolExecutionError
+      const knownError = err instanceof ToolExecutionError;
+      const retryable = knownError
+        && RETRYABLE_TOOL_ERRORS.has(err.toolCode)
+        && !(tool.capability === 'write' && err.data?.outcome === 'unknown');
+      const diagnostic = knownError
+        ? toolErrorLogContext(err)
+        : { code: 'INTERNAL_ERROR', reason: 'ResultProjectionFailed', phase: 'result_projection' };
+      logger.error({ tool: name, ...diagnostic, retryable }, 'Tool execution failed');
+      const error = knownError
         ? {
           code: err.toolCode,
           message: err.message,
           ...err.data,
-          retryable: RETRYABLE_TOOL_ERRORS.has(err.toolCode)
-            && !(tool.capability === 'write' && err.data?.outcome === 'unknown'),
+          retryable,
         }
         : {
           code: 'INTERNAL_ERROR',
           message: 'Internal error during tool execution',
+          reason: 'ResultProjectionFailed',
+          phase: 'result_projection',
           retryable: false,
           ...(tool.capability === 'write' ? { outcome: 'unknown' } : {}),
         };

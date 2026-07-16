@@ -24,6 +24,8 @@ export function checkOperationNotAborted(context: ToolExecutionContext | undefin
     throw new ToolExecutionError('TOOL_TIMEOUT', 'Write deadline expired before mutation', {
       outcome: 'not_started',
       operationId,
+      reason: 'ExecutionDeadlineExceeded',
+      phase: 'execution',
     });
   }
 }

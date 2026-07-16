@@ -96,7 +96,7 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
       !operationAnnotationsMatch(updatedAnnotations, operationId, operationHash, 'restart') ||
       updatedAnnotations?.['kubectl.kubernetes.io/restartedAt'] !== restartedAt) {
     throw new ToolExecutionError('KUBERNETES_ERROR', 'Kubernetes accepted the restart but returned an inconsistent workload', {
-      outcome: 'unknown', operationId,
+      outcome: 'unknown', operationId, reason: 'PostWriteVerificationFailed', phase: 'verification',
     });
   }
   return receipt(params, updated, operationId, restartedAt);

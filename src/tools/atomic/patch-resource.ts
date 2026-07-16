@@ -504,7 +504,7 @@ export async function patchResourceHandler(request: PatchResourceRequest, contex
     throw new ToolExecutionError(
       'KUBERNETES_ERROR',
       'Kubernetes accepted the patch but returned an inconsistent resource',
-      { outcome: 'unknown', operationId }
+      { outcome: 'unknown', operationId, reason: 'PostWriteVerificationFailed', phase: 'verification' }
     );
   }
   return buildReceipt(request, updated, operationId, compiled);
