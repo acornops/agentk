@@ -21,7 +21,10 @@ This repository owns the Kubernetes agent code, chart, production image, protoco
 
 ## Agent-Assisted Development
 
-This repository supports human and agent-assisted development. Start coding agents from this repository root for agentk-only work, and from the `acornops-workspace` root for changes that touch multiple AcornOps repositories.
+This repository supports human and agent-assisted development. Start coding
+agents from this repository root for AgentK-only work, and from the AcornOps
+workspace cloned from the [`acornops`](https://github.com/acornops/acornops)
+repository for changes that touch multiple AcornOps repositories.
 
 ## Contracts
 
