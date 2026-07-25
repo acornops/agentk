@@ -99,7 +99,10 @@ assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_CACHE_ENABLED\s+value: "true"/
 assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS\s+value: "5000"/, 'watch debounce env should default 5000');
 assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS\s+value: "15000"/, 'watch sync timeout env should default 15000');
 assertMatch(readOnly, /name: ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS\s+value: "300"/, 'watch timeout env should default 300');
-assertMatch(readOnly, /name: ACORNOPS_AGENT_PATCH_KINDS\s+value: "Deployment,StatefulSet,DaemonSet"/, 'patch kinds should default to existing workload RBAC');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS\s+value: "Deployment,StatefulSet,DaemonSet"/, 'workload patch kinds should default to existing workload RBAC');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_RESOURCE_PATCH_KINDS\s+value: ""/, 'resource patch kinds should default empty');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_ALLOW_ENV_PATCH\s+value: "false"/, 'environment patching should default false');
+assertMatch(readOnly, /name: ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH\s+value: "false"/, 'ConfigMap patching should default false');
 assertMatch(readOnly, /name: ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH\s+value: "false"/, 'Service selector patching should default false');
 assertIncludes(readOnly, 'fieldPath: metadata.uid', 'deployment should inject pod UID for leader identity');
 assertExcludes(readOnly, 'verbs: ["patch"]', 'default RBAC must not include workload write verbs');
@@ -109,6 +112,7 @@ assertIncludes(
   'resources: ["pods", "pods/log", "services", "persistentvolumeclaims", "events", "nodes", "namespaces"]',
   'cluster RBAC should allow namespace discovery'
 );
+assertExcludes(readOnly, 'resources: ["configmaps"]', 'default RBAC must not grant ConfigMap access');
 assertIncludes(readOnly, 'kind: Secret', 'default install should create the agent key Secret');
 assertExcludes(readOnly, 'platform-additional-ca', 'default chart should not render an additional CA volume or mount');
 assertExcludes(readOnly, 'NODE_EXTRA_CA_CERTS', 'default chart should not configure Node.js additional CA trust');
@@ -211,19 +215,30 @@ assertExcludes(writeEnabled, 'verbs: ["patch", "update"]', 'write RBAC should no
 assertExcludes(writeEnabled, 'resources: ["cronjobs"]\n    verbs: ["patch"]', 'default write RBAC should not patch CronJobs');
 assertExcludes(writeEnabled, 'resources: ["services"]\n    verbs: ["patch"]', 'default write RBAC should not patch Services');
 assertExcludes(writeEnabled, 'resources: ["ingresses"]\n    verbs: ["patch"]', 'default write RBAC should not patch Ingresses');
+assertExcludes(writeEnabled, 'resources: ["configmaps"]\n    verbs: ["patch"]', 'default write RBAC should not patch ConfigMaps');
 
 const expandedPatchKinds = helmTemplate([
   ...baseArgs,
   '--set',
   'rbac.write.enabled=true',
   '--set-json',
-  'patchPolicy.kinds=["Deployment","StatefulSet","DaemonSet","CronJob","Service","Ingress"]',
+  'patchPolicy.workloadKinds=["Deployment","StatefulSet","DaemonSet","CronJob"]',
+  '--set-json',
+  'patchPolicy.resourceKinds=["Service","Ingress"]',
+  '--set',
+  'patchPolicy.allowEnvChanges=true',
+  '--set',
+  'patchPolicy.allowConfigMapChanges=true',
   '--set',
   'patchPolicy.allowServiceSelectorChanges=true'
 ]);
 assertIncludes(expandedPatchKinds, 'resources: ["cronjobs"]\n    verbs: ["patch"]', 'CronJob patch opt-in should add exact batch RBAC');
 assertIncludes(expandedPatchKinds, 'resources: ["services"]\n    verbs: ["patch"]', 'Service patch opt-in should add exact core RBAC');
 assertIncludes(expandedPatchKinds, 'resources: ["ingresses"]\n    verbs: ["patch"]', 'Ingress patch opt-in should add exact networking RBAC');
+assertIncludes(expandedPatchKinds, 'resources: ["configmaps"]\n    verbs: ["get", "list", "watch"]', 'ConfigMap patch opt-in should add prerequisite read RBAC');
+assertIncludes(expandedPatchKinds, 'resources: ["configmaps"]\n    verbs: ["patch"]', 'ConfigMap patch opt-in should add exact core RBAC');
+assertMatch(expandedPatchKinds, /name: ACORNOPS_AGENT_ALLOW_ENV_PATCH\s+value: "true"/, 'environment operator opt-in should reach AgentK');
+assertMatch(expandedPatchKinds, /name: ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH\s+value: "true"/, 'ConfigMap operator opt-in should reach AgentK');
 assertMatch(expandedPatchKinds, /name: ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH\s+value: "true"/, 'selector operator opt-in should reach AgentK');
 
 const existingSecret = helmTemplate([
@@ -252,6 +267,7 @@ assertIncludes(namespaceScoped, 'namespace: team-a', 'namespace-scoped install s
 assertIncludes(namespaceScoped, 'namespace: team-b', 'namespace-scoped install should include team-b Role/Binding');
 assertExcludes(namespaceScoped, 'kind: ClusterRole', 'namespace-scoped install should avoid ClusterRole');
 assertExcludes(namespaceScoped, 'resources: ["pods", "pods/log", "services", "persistentvolumeclaims", "events", "nodes", "namespaces"]', 'namespace-scoped install should not grant cluster namespace discovery');
+assertExcludes(namespaceScoped, 'resources: ["configmaps"]', 'default namespace RBAC must not grant ConfigMap access');
 assertIncludes(namespaceScoped, 'value: "team-a,team-b"', 'namespace include should set ACORNOPS_AGENT_WATCH_NAMESPACES');
 
 const namespaceWrite = helmTemplate([
@@ -276,12 +292,18 @@ const namespaceExpandedPatchKinds = helmTemplate([
   '--set',
   'rbac.write.enabled=true',
   '--set-json',
-  'patchPolicy.kinds=["Deployment","StatefulSet","DaemonSet","CronJob","Service","Ingress"]'
+  'patchPolicy.workloadKinds=["Deployment","StatefulSet","DaemonSet","CronJob"]',
+  '--set-json',
+  'patchPolicy.resourceKinds=["Service","Ingress"]',
+  '--set',
+  'patchPolicy.allowConfigMapChanges=true'
 ]);
 assertExcludes(namespaceExpandedPatchKinds, 'kind: ClusterRole', 'expanded namespace patch RBAC should remain Role-scoped');
 assertIncludes(namespaceExpandedPatchKinds, 'resources: ["cronjobs"]\n    verbs: ["patch"]', 'namespace CronJob opt-in should add exact batch RBAC');
 assertIncludes(namespaceExpandedPatchKinds, 'resources: ["services"]\n    verbs: ["patch"]', 'namespace Service opt-in should add exact core RBAC');
 assertIncludes(namespaceExpandedPatchKinds, 'resources: ["ingresses"]\n    verbs: ["patch"]', 'namespace Ingress opt-in should add exact networking RBAC');
+assertIncludes(namespaceExpandedPatchKinds, 'resources: ["configmaps"]\n    verbs: ["get", "list", "watch"]', 'namespace ConfigMap opt-in should add prerequisite read RBAC');
+assertIncludes(namespaceExpandedPatchKinds, 'resources: ["configmaps"]\n    verbs: ["patch"]', 'namespace ConfigMap opt-in should add exact core RBAC');
 assertExcludes(namespaceWrite, 'deployments/scale', 'namespace write RBAC should not grant scale subresources');
 assertExcludes(namespaceWrite, 'verbs: ["patch", "update"]', 'namespace write RBAC should not grant update');
 

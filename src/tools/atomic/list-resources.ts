@@ -22,7 +22,7 @@ const GENERIC_MODEL_PAGE_LIMIT = 50;
 const NAMESPACE_MODEL_PAGE_LIMIT = 100;
 
 const schema = z.object({
-  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Ingress', 'PVC', 'HPA', 'Namespace', 'Node', 'Event']),
+  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Ingress', 'ConfigMap', 'PVC', 'HPA', 'Namespace', 'Node', 'Event']),
   namespace: namespaceSchema.optional(),
   label_selector: selectorSchema.optional(),
   field_selector: selectorSchema.optional(),
@@ -231,6 +231,11 @@ async function handler(params: z.infer<typeof schema>) {
       response = namespace
         ? await k8sClient.core.listNamespacedService({ namespace, ...listOptions })
         : await k8sClient.core.listServiceForAllNamespaces(listOptions);
+      break;
+    case 'ConfigMap':
+      response = namespace
+        ? await k8sClient.core.listNamespacedConfigMap({ namespace, ...listOptions })
+        : await k8sClient.core.listConfigMapForAllNamespaces(listOptions);
       break;
     case 'Ingress':
       response = namespace

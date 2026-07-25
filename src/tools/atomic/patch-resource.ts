@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { config, SUPPORTED_PATCH_KINDS, SupportedPatchKind } from '../../config.js';
+import { config, SUPPORTED_RESOURCE_PATCH_KINDS, SupportedResourcePatchKind } from '../../config.js';
 import { k8sClient } from '../../k8s/client.js';
 import { ToolExecutionError } from '../errors.js';
+import { WRITE_TOOL_RESULT_OUTPUT_SCHEMA, writeProjection } from '../model-context.js';
 import { ToolDefinition, ToolExecutionContext } from '../registry.js';
 import {
   annotationValueSchema,
-  containerNameSchema,
-  imageReferenceSchema,
   kubernetesNameSchema,
   kubernetesUidSchema,
   labelValueSchema,
@@ -23,64 +22,42 @@ import {
   operationAnnotationsMatch,
 } from '../utils.js';
 import { WriteReceipt } from '../write-receipt.js';
-import { WRITE_TOOL_RESULT_OUTPUT_SCHEMA, writeProjection } from '../model-context.js';
-
-const workloadKinds = new Set<SupportedPatchKind>(['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob']);
-const scopeSchema = z.enum(['resource', 'pod_template']);
-
-const setImageSchema = z.object({
-  type: z.literal('set_image'),
-  container_type: z.enum(['container', 'init_container']),
-  container: containerNameSchema,
-  expected_image: imageReferenceSchema,
-  image: imageReferenceSchema,
-}).strict();
 
 const setLabelSchema = z.object({
   type: z.literal('set_label'),
-  scope: scopeSchema,
   key: qualifiedNameSchema,
   expected_value: labelValueSchema.nullable(),
   value: labelValueSchema,
 }).strict();
-
 const removeLabelSchema = z.object({
   type: z.literal('remove_label'),
-  scope: scopeSchema,
   key: qualifiedNameSchema,
   expected_value: labelValueSchema,
 }).strict();
-
 const setAnnotationSchema = z.object({
   type: z.literal('set_annotation'),
-  scope: scopeSchema,
   key: qualifiedNameSchema,
   expected_value: annotationValueSchema.nullable(),
   value: annotationValueSchema,
 }).strict();
-
 const removeAnnotationSchema = z.object({
   type: z.literal('remove_annotation'),
-  scope: scopeSchema,
   key: qualifiedNameSchema,
   expected_value: annotationValueSchema,
 }).strict();
-
 const setServiceSelectorSchema = z.object({
   type: z.literal('set_service_selector'),
   key: qualifiedNameSchema,
   expected_value: labelValueSchema.nullable(),
   value: labelValueSchema,
 }).strict();
-
 const removeServiceSelectorSchema = z.object({
   type: z.literal('remove_service_selector'),
   key: qualifiedNameSchema,
   expected_value: labelValueSchema,
 }).strict();
 
-export const patchChangeSchema = z.discriminatedUnion('type', [
-  setImageSchema,
+export const resourcePatchChangeSchema = z.discriminatedUnion('type', [
   setLabelSchema,
   removeLabelSchema,
   setAnnotationSchema,
@@ -88,17 +65,14 @@ export const patchChangeSchema = z.discriminatedUnion('type', [
   setServiceSelectorSchema,
   removeServiceSelectorSchema,
 ]);
+export type ResourcePatchChange = z.infer<typeof resourcePatchChangeSchema>;
 
-const patchKindSchema = z.enum(SUPPORTED_PATCH_KINDS);
-
-/** Return a stable semantic location for duplicate detection, hashing, and receipts. */
-export function patchChangeLocation(change: PatchChange): string {
-  if (change.type === 'set_image') return `pod_template:${change.container_type}:${change.container}:image`;
+/** Return a stable semantic location for duplicate detection and receipts. */
+function location(change: ResourcePatchChange): string {
   if (change.type === 'set_service_selector' || change.type === 'remove_service_selector') {
     return `resource:service_selector:${change.key}`;
   }
-  const field = change.type.endsWith('label') ? 'label' : 'annotation';
-  return `${change.scope}:${field}:${change.key}`;
+  return `resource:${change.type.endsWith('label') ? 'label' : 'annotation'}:${change.key}`;
 }
 
 /** Return whether an annotation key suggests secret-bearing content. */
@@ -119,33 +93,17 @@ function isProtectedAnnotationKey(key: string): boolean {
   return isProtectedMetadataKey(key) || key === 'kubectl.kubernetes.io/restartedAt';
 }
 
-/** Return whether a resource kind contains a supported Pod template. */
-function supportsPodTemplate(kind: SupportedPatchKind): boolean {
-  return workloadKinds.has(kind);
-}
-
-/** Validate one semantic operation against its target resource kind. */
-function validateKindAndChange(kind: SupportedPatchKind, change: PatchChange): string | undefined {
-  if (change.type === 'set_image' && !workloadKinds.has(kind)) return `${change.type} is unavailable for ${kind}`;
-  if ((change.type === 'set_service_selector' || change.type === 'remove_service_selector') && kind !== 'Service') {
-    return `${change.type} is available only for Service`;
-  }
-  if ('scope' in change && change.scope === 'pod_template' && !supportsPodTemplate(kind)) {
-    return `pod_template metadata is unavailable for ${kind}`;
-  }
-  return undefined;
-}
-
 export const patchResourceSchema = z.object({
-  kind: patchKindSchema,
+  kind: z.enum(SUPPORTED_RESOURCE_PATCH_KINDS),
   namespace: namespaceSchema,
   name: kubernetesNameSchema,
   expected_uid: kubernetesUidSchema,
+  expected_resource_version: z.string().min(1).max(128),
   reason: reasonSchema,
   confirm_service_selector_change: z.boolean().optional().default(false),
-  changes: z.array(patchChangeSchema).min(1).max(10),
+  changes: z.array(resourcePatchChangeSchema).min(1).max(10),
 }).strict().superRefine((value, ctx) => {
-  if (!config.ACORNOPS_AGENT_PATCH_KINDS.includes(value.kind)) {
+  if (!config.ACORNOPS_AGENT_RESOURCE_PATCH_KINDS.includes(value.kind)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['kind'], message: `${value.kind} is not enabled by local patch policy` });
   }
   if (Buffer.byteLength(JSON.stringify(value)) > 32 * 1024) {
@@ -153,15 +111,13 @@ export const patchResourceSchema = z.object({
   }
   const locations = new Set<string>();
   for (const [index, change] of value.changes.entries()) {
-    const error = validateKindAndChange(value.kind, change);
-    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['changes', index], message: error });
-    const location = patchChangeLocation(change);
-    if (locations.has(location)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['changes', index], message: `Duplicate patch location: ${location}` });
+    const changeLocation = location(change);
+    if (locations.has(changeLocation)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['changes', index], message: `Duplicate patch location: ${changeLocation}` });
     }
-    locations.add(location);
-    if (change.type === 'set_image' && change.image === change.expected_image) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['changes', index, 'image'], message: 'Image change must not be a no-op' });
+    locations.add(changeLocation);
+    if ((change.type === 'set_service_selector' || change.type === 'remove_service_selector') && value.kind !== 'Service') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['changes', index], message: `${change.type} is available only for Service` });
     }
     if ((change.type === 'set_label' || change.type === 'set_annotation' || change.type === 'set_service_selector') &&
         change.expected_value === change.value) {
@@ -179,7 +135,11 @@ export const patchResourceSchema = z.object({
         ? [change.expected_value, change.value]
         : [change.expected_value];
       if (values.some((item) => item !== null && !/^[a-fA-F0-9]{32,128}$/.test(item))) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['changes', index], message: 'Checksum annotations require hexadecimal digest values' });
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['changes', index],
+          message: 'Checksum annotations require hexadecimal digest values',
+        });
       }
     }
   }
@@ -195,244 +155,118 @@ export const patchResourceSchema = z.object({
 });
 
 export type PatchResourceRequest = z.infer<typeof patchResourceSchema>;
-export type PatchChange = z.infer<typeof patchChangeSchema>;
 
-interface CompiledPatch {
-  body: Array<Record<string, unknown>>;
-  changes: PatchChange[];
-  rolloutTriggered: boolean;
-  serviceRoutingChanged: boolean;
-}
-
-/** Return the JSON pointer for a supported workload Pod template. */
-function templatePath(kind: SupportedPatchKind): string {
-  return kind === 'CronJob' ? '/spec/jobTemplate/spec/template' : '/spec/template';
-}
-
-/** Return a supported workload Pod template from a Kubernetes resource. */
-function templateFor(resource: any, kind: SupportedPatchKind): any {
-  return kind === 'CronJob' ? resource.spec?.jobTemplate?.spec?.template : resource.spec?.template;
-}
-
-/** Return a metadata map at resource or Pod-template scope. */
-function mapValue(resource: any, kind: SupportedPatchKind, scope: 'resource' | 'pod_template', field: 'labels' | 'annotations') {
-  const metadata = scope === 'resource' ? resource.metadata : templateFor(resource, kind)?.metadata;
-  return metadata?.[field] || {};
-}
-
-/** Return the expected scalar value from a non-image semantic operation. */
-function expectedValue(change: PatchChange): string | null | undefined {
-  return 'expected_value' in change ? change.expected_value : undefined;
-}
-
-/** Read the current scalar value addressed by a semantic operation. */
-function currentChangeValue(resource: any, kind: SupportedPatchKind, change: PatchChange): string | undefined {
-  if (change.type === 'set_image') {
-    const field = change.container_type === 'container' ? 'containers' : 'initContainers';
-    return templateFor(resource, kind)?.spec?.[field]?.find((container: any) => container?.name === change.container)?.image;
-  }
+/** Read the current scalar value addressed by a resource patch operation. */
+function currentValue(resource: any, change: ResourcePatchChange): string | undefined {
   if (change.type === 'set_service_selector' || change.type === 'remove_service_selector') {
     return resource.spec?.selector?.[change.key];
   }
   const field = change.type.endsWith('label') ? 'labels' : 'annotations';
-  return mapValue(resource, kind, change.scope, field)[change.key];
+  return resource.metadata?.[field]?.[change.key];
 }
 
-/** Reject a patch whose expected field values are no longer current. */
-function assertExpectedState(resource: any, request: PatchResourceRequest): void {
-  for (const change of request.changes) {
-    const actual = currentChangeValue(resource, request.kind, change);
-    const expected = change.type === 'set_image' ? change.expected_image : expectedValue(change);
-    if (expected === null ? actual !== undefined : actual !== expected) {
-      throw new ToolExecutionError('PRECONDITION_FAILED', `Current value changed at ${patchChangeLocation(change)}`);
-    }
-  }
-}
-
-/** Return whether every requested semantic operation is reflected in a resource. */
+/** Return whether all requested resource changes are visible. */
 function desiredStateMatches(resource: any, request: PatchResourceRequest): boolean {
   return request.changes.every((change) => {
-    const actual = currentChangeValue(resource, request.kind, change);
-    if (change.type === 'set_image') return actual === change.image;
-    if (change.type === 'set_label' || change.type === 'set_annotation' || change.type === 'set_service_selector') {
-      return actual === change.value;
-    }
-    return actual === undefined;
+    const actual = currentValue(resource, change);
+    return change.type === 'set_label' || change.type === 'set_annotation' || change.type === 'set_service_selector'
+      ? actual === change.value
+      : actual === undefined;
   });
 }
 
-/** Return whether Pod-template labels still satisfy a workload selector. */
-function selectorMatchesLabels(selector: any, labels: Record<string, string>): boolean {
-  if (!selector || typeof selector !== 'object' || Array.isArray(selector)) return false;
-  const matchLabels = selector.matchLabels || {};
-  if (typeof matchLabels !== 'object' || Array.isArray(matchLabels)) return false;
-  for (const [key, value] of Object.entries(matchLabels)) {
-    if (labels[key] !== value) return false;
-  }
-  const expressions = selector.matchExpressions || [];
-  if (!Array.isArray(expressions)) return false;
-  for (const expression of expressions) {
-    if (!expression || typeof expression.key !== 'string' || typeof expression.operator !== 'string') return false;
-    const value = labels[expression.key];
-    const values = Array.isArray(expression.values) ? expression.values : [];
-    if (expression.operator === 'In' && (value === undefined || !values.includes(value))) return false;
-    if (expression.operator === 'NotIn' && (value === undefined || values.includes(value))) return false;
-    if (expression.operator === 'Exists' && value === undefined) return false;
-    if (expression.operator === 'DoesNotExist' && value !== undefined) return false;
-    if (!['In', 'NotIn', 'Exists', 'DoesNotExist'].includes(expression.operator)) return false;
-  }
-  return true;
-}
-
-/** Return whether safety invariants still hold after admission processing. */
-function patchedInvariantsMatch(resource: any, request: PatchResourceRequest): boolean {
-  if (workloadKinds.has(request.kind) && request.kind !== 'CronJob') {
-    const labels = templateFor(resource, request.kind)?.metadata?.labels || {};
-    if (!selectorMatchesLabels(resource.spec?.selector, labels)) return false;
-  }
-  const changesServiceRouting = request.changes.some((change) =>
+/** Return whether Service routing invariants remain valid. */
+function invariantsMatch(resource: any, request: PatchResourceRequest): boolean {
+  const selectorChanged = request.changes.some((change) =>
     change.type === 'set_service_selector' || change.type === 'remove_service_selector');
-  if (request.kind === 'Service' && changesServiceRouting) {
-    return resource.spec?.type !== 'ExternalName' && Object.keys(resource.spec?.selector || {}).length > 0;
-  }
-  return true;
+  return !selectorChanged ||
+    (request.kind === 'Service' && resource.spec?.type !== 'ExternalName' && Object.keys(resource.spec?.selector || {}).length > 0);
 }
 
-/** Sort semantic changes deterministically without mutating caller input. */
-function canonicalChanges(changes: PatchChange[]): PatchChange[] {
-  return [...changes].sort((left, right) => patchChangeLocation(left).localeCompare(patchChangeLocation(right)));
+/** Sort resource changes deterministically for hashing and receipts. */
+function canonicalChanges(changes: ResourcePatchChange[]): ResourcePatchChange[] {
+  return [...changes].sort((left, right) => location(left).localeCompare(location(right)));
 }
 
-/** Derive user-visible effects directly from semantic operations. */
-function patchEffects(kind: SupportedPatchKind, changes: PatchChange[]) {
-  return {
-    rolloutTriggered: kind !== 'CronJob' && changes.some((change) =>
-      change.type === 'set_image' || ('scope' in change && change.scope === 'pod_template')),
-    serviceRoutingChanged: changes.some((change) =>
-      change.type === 'set_service_selector' || change.type === 'remove_service_selector'),
-  };
-}
-
-/** Compile validated semantic operations into one guarded Kubernetes JSON Patch. */
-function compilePatch(current: any, request: PatchResourceRequest, operationId: string, operationHash: string): CompiledPatch {
+/** Compile Service or Ingress semantic operations into one guarded JSON Patch. */
+function compilePatch(current: any, request: PatchResourceRequest, operationId: string, operationHash: string) {
   if (!current.metadata?.uid || !current.metadata?.resourceVersion) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Resource identity is incomplete');
   }
-  assertExpectedState(current, request);
   const proposed = structuredClone(current);
   const changes = canonicalChanges(request.changes);
   const body: Array<Record<string, unknown>> = [
     { op: 'test', path: '/metadata/uid', value: current.metadata.uid },
     { op: 'test', path: '/metadata/resourceVersion', value: current.metadata.resourceVersion },
   ];
-  const touchedMaps = new Set<string>();
-  const { rolloutTriggered, serviceRoutingChanged } = patchEffects(request.kind, changes);
-
+  const touched = new Set<string>();
   for (const change of changes) {
-    if (change.type === 'set_image') {
-      const arrayField = change.container_type === 'container' ? 'containers' : 'initContainers';
-      const containers = templateFor(proposed, request.kind)?.spec?.[arrayField];
-      const index = Array.isArray(containers) ? containers.findIndex((container: any) => container?.name === change.container) : -1;
-      if (index < 0) throw new ToolExecutionError('PRECONDITION_FAILED', `Container not found: ${change.container}`);
-      const path = `${templatePath(request.kind)}/spec/${arrayField}/${index}`;
-      body.push({ op: 'test', path: `${path}/name`, value: change.container });
-      body.push({ op: 'test', path: `${path}/image`, value: change.expected_image });
-      body.push({ op: 'replace', path: `${path}/image`, value: change.image });
-      containers[index].image = change.image;
-      continue;
+    const actual = currentValue(current, change);
+    const expected = change.expected_value;
+    if (expected === null ? actual !== undefined : actual !== expected) {
+      throw new ToolExecutionError('PRECONDITION_FAILED', `Current value changed at ${location(change)}`);
     }
-
     if (change.type === 'set_service_selector' || change.type === 'remove_service_selector') {
       proposed.spec ||= {};
       proposed.spec.selector = { ...(proposed.spec.selector || {}) };
       if (change.type === 'set_service_selector') proposed.spec.selector[change.key] = change.value;
       else delete proposed.spec.selector[change.key];
-      touchedMaps.add('resource:service_selector');
-      continue;
-    }
-
-    const field = change.type.endsWith('label') ? 'labels' : 'annotations';
-    const metadata = change.scope === 'resource'
-      ? (proposed.metadata ||= {})
-      : (templateFor(proposed, request.kind).metadata ||= {});
-    metadata[field] = { ...(metadata[field] || {}) };
-    if (change.type === 'set_label' || change.type === 'set_annotation') metadata[field][change.key] = change.value;
-    else delete metadata[field][change.key];
-    touchedMaps.add(`${change.scope}:${field}`);
-  }
-
-  if (workloadKinds.has(request.kind)) {
-    const labels = templateFor(proposed, request.kind)?.metadata?.labels || {};
-    if (request.kind !== 'CronJob' && !selectorMatchesLabels(proposed.spec?.selector, labels)) {
-      throw new ToolExecutionError('PRECONDITION_FAILED', 'Patched pod-template labels would no longer match the workload selector');
+      touched.add('selector');
+    } else {
+      const field = change.type.endsWith('label') ? 'labels' : 'annotations';
+      proposed.metadata ||= {};
+      proposed.metadata[field] = { ...(proposed.metadata[field] || {}) };
+      if (change.type === 'set_label' || change.type === 'set_annotation') proposed.metadata[field][change.key] = change.value;
+      else delete proposed.metadata[field][change.key];
+      touched.add(field);
     }
   }
-  if (request.kind === 'Service' && serviceRoutingChanged) {
-    if (proposed.spec?.type === 'ExternalName') {
-      throw new ToolExecutionError('PRECONDITION_FAILED', 'ExternalName Services do not support selector changes');
-    }
-    if (Object.keys(proposed.spec?.selector || {}).length === 0) {
-      throw new ToolExecutionError('PRECONDITION_FAILED', 'Service selector changes may not leave an empty selector');
-    }
+  if (!invariantsMatch(proposed, request)) {
+    throw new ToolExecutionError('PRECONDITION_FAILED', 'Service selector changes require a non-empty selector on a non-ExternalName Service');
   }
-
-  const operationAnnotations = {
-    ...(proposed.metadata?.annotations || {}),
+  proposed.metadata.annotations = {
+    ...(proposed.metadata.annotations || {}),
     ...getAnnotations(request.reason, operationId),
     'acornops.dev/operation-hash': operationHash,
     'acornops.dev/operation-kind': 'patch',
   };
-  proposed.metadata.annotations = operationAnnotations;
-  touchedMaps.add('resource:annotations');
-
-  const originalTemplateMetadata = templateFor(current, request.kind)?.metadata;
-  const templateMaps = [...touchedMaps].filter((entry) => entry.startsWith('pod_template:'));
-  if (templateMaps.length > 0 && !originalTemplateMetadata) {
-    body.push({ op: 'add', path: `${templatePath(request.kind)}/metadata`, value: templateFor(proposed, request.kind).metadata });
-    templateMaps.forEach((entry) => touchedMaps.delete(entry));
+  touched.add('annotations');
+  for (const field of [...touched].sort()) {
+    body.push(field === 'selector'
+      ? { op: 'add', path: '/spec/selector', value: proposed.spec.selector }
+      : { op: 'add', path: `/metadata/${field}`, value: proposed.metadata[field] });
   }
-  for (const entry of [...touchedMaps].sort()) {
-    if (entry === 'resource:service_selector') {
-      body.push({ op: 'add', path: '/spec/selector', value: proposed.spec.selector });
-      continue;
-    }
-    const [scope, field] = entry.split(':') as ['resource' | 'pod_template', 'labels' | 'annotations'];
-    const path = scope === 'resource' ? `/metadata/${field}` : `${templatePath(request.kind)}/metadata/${field}`;
-    body.push({ op: 'add', path, value: mapValue(proposed, request.kind, scope, field) });
-  }
-
-  return { body, changes, rolloutTriggered, serviceRoutingChanged };
+  return {
+    body,
+    changes,
+    rolloutTriggered: false,
+    serviceRoutingChanged: changes.some((change) =>
+      change.type === 'set_service_selector' || change.type === 'remove_service_selector'),
+  };
 }
 
-/** Read one supported resource through its typed Kubernetes API. */
-async function readResource(kind: SupportedPatchKind, name: string, namespace: string): Promise<any> {
-  if (kind === 'Deployment') return k8sClient.apps.readNamespacedDeployment({ name, namespace });
-  if (kind === 'StatefulSet') return k8sClient.apps.readNamespacedStatefulSet({ name, namespace });
-  if (kind === 'DaemonSet') return k8sClient.apps.readNamespacedDaemonSet({ name, namespace });
-  if (kind === 'CronJob') return k8sClient.batch.readNamespacedCronJob({ name, namespace });
-  if (kind === 'Service') return k8sClient.core.readNamespacedService({ name, namespace });
-  return k8sClient.networking.readNamespacedIngress({ name, namespace });
+/** Read one supported Service or Ingress target. */
+async function readResource(kind: SupportedResourcePatchKind, name: string, namespace: string): Promise<any> {
+  return kind === 'Service'
+    ? k8sClient.core.readNamespacedService({ name, namespace })
+    : k8sClient.networking.readNamespacedIngress({ name, namespace });
 }
 
-/** Submit a JSON Patch to the correct typed Kubernetes API. */
-async function applyPatch(kind: SupportedPatchKind, name: string, namespace: string, body: any[], dryRun?: 'All'): Promise<any> {
+/** Submit a guarded JSON Patch to the supported resource API. */
+async function applyPatch(kind: SupportedResourcePatchKind, name: string, namespace: string, body: any[], dryRun?: 'All'): Promise<any> {
   const options = { name, namespace, body, dryRun, fieldManager: 'acornops-agentk', fieldValidation: 'Strict' };
-  if (kind === 'Deployment') return k8sClient.apps.patchNamespacedDeployment(options);
-  if (kind === 'StatefulSet') return k8sClient.apps.patchNamespacedStatefulSet(options);
-  if (kind === 'DaemonSet') return k8sClient.apps.patchNamespacedDaemonSet(options);
-  if (kind === 'CronJob') return k8sClient.batch.patchNamespacedCronJob(options);
-  if (kind === 'Service') return k8sClient.core.patchNamespacedService(options);
-  return k8sClient.networking.patchNamespacedIngress(options);
+  return kind === 'Service'
+    ? k8sClient.core.patchNamespacedService(options)
+    : k8sClient.networking.patchNamespacedIngress(options);
 }
 
-/** Build a minimal non-sensitive structured patch receipt. */
-function buildReceipt(request: PatchResourceRequest, resource: any, operationId: string, compiled: Omit<CompiledPatch, 'body'>): WriteReceipt {
-  const affectsFutureJobs = request.kind === 'CronJob' && compiled.changes.some((change) =>
-    change.type === 'set_image' || ('scope' in change && change.scope === 'pod_template'));
-  const warnings = [
-    ...(compiled.serviceRoutingChanged ? ['Service selector changes can immediately redirect traffic.'] : []),
-    ...(affectsFutureJobs ? ['CronJob template changes affect future Jobs only.'] : []),
-  ];
+interface ResourcePatchSummary {
+  changes: ResourcePatchChange[];
+  serviceRoutingChanged: boolean;
+}
+
+/** Build a metadata-value-free Service or Ingress mutation receipt. */
+function buildReceipt(request: PatchResourceRequest, resource: any, operationId: string, compiled: ResourcePatchSummary): WriteReceipt {
   return {
     success: true,
     operationId,
@@ -445,25 +279,19 @@ function buildReceipt(request: PatchResourceRequest, resource: any, operationId:
     change: {
       type: 'patch',
       changeCount: compiled.changes.length,
-      rolloutTriggered: compiled.rolloutTriggered,
+      rolloutTriggered: false,
       serviceRoutingChanged: compiled.serviceRoutingChanged,
-      fields: compiled.changes.map((change) => ({ type: change.type, location: patchChangeLocation(change) })),
+      fields: compiled.changes.map((change) => ({ type: change.type, location: location(change) })),
     },
-    observed: {
-      resourceVersion: String(resource.metadata?.resourceVersion || ''),
-      ...(resource.metadata?.generation === undefined ? {} : { generation: resource.metadata.generation }),
-    },
-    ...(warnings.length > 0 ? { warnings } : {}),
+    observed: { resourceVersion: String(resource.metadata?.resourceVersion || '') },
+    ...(compiled.serviceRoutingChanged ? { warnings: ['Service selector changes can immediately redirect traffic.'] } : {}),
   };
 }
 
-/** Apply a semantic resource patch through dry-run, atomic preconditions, and idempotent receipts. */
+/** Apply a guarded Service or Ingress semantic patch. */
 export async function patchResourceHandler(request: PatchResourceRequest, context?: ToolExecutionContext): Promise<WriteReceipt> {
   checkWriteEnabled();
   checkNamespaceAllowed(request.namespace);
-  if (!config.ACORNOPS_AGENT_PATCH_KINDS.includes(request.kind)) {
-    throw new ToolExecutionError('PRECONDITION_FAILED', `${request.kind} is not enabled by local patch policy`);
-  }
   const operationId = context?.operationId || `direct-${Date.now()}`;
   const normalized = { ...request, changes: canonicalChanges(request.changes) };
   const operationHash = createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
@@ -472,39 +300,37 @@ export async function patchResourceHandler(request: PatchResourceRequest, contex
   if (current.metadata?.uid !== request.expected_uid) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Resource UID does not match the expected target');
   }
-
-  const existingOperationId = current.metadata?.annotations?.['acornops.dev/operation-id'];
-  if (existingOperationId === operationId) {
-    if (!current.metadata?.resourceVersion ||
-        !operationAnnotationsMatch(current.metadata?.annotations, operationId, operationHash, 'patch') ||
-        !desiredStateMatches(current, request) || !patchedInvariantsMatch(current, request)) {
+  if (current.metadata?.annotations?.['acornops.dev/operation-id'] === operationId) {
+    if (!operationAnnotationsMatch(current.metadata?.annotations, operationId, operationHash, 'patch') ||
+        !desiredStateMatches(current, request) || !invariantsMatch(current, request)) {
       throw new ToolExecutionError('PRECONDITION_FAILED', 'Operation ID was already used with different patch arguments or state');
     }
-    const { rolloutTriggered, serviceRoutingChanged } = patchEffects(request.kind, normalized.changes);
     return buildReceipt(request, current, operationId, {
       changes: normalized.changes,
-      rolloutTriggered,
-      serviceRoutingChanged,
+      serviceRoutingChanged: normalized.changes.some((change) =>
+        change.type === 'set_service_selector' || change.type === 'remove_service_selector'),
     });
   }
-
-  const compiled = compilePatch(current, request, operationId, operationHash);
+  if (current.metadata?.resourceVersion !== request.expected_resource_version) {
+    throw new ToolExecutionError('PRECONDITION_FAILED', 'Resource version does not match the inspected resource');
+  }
+  const compiled = compilePatch(current, normalized, operationId, operationHash);
   const dryRunResult = await applyPatch(request.kind, request.name, request.namespace, compiled.body, 'All');
   checkOperationNotAborted(context, operationId);
   if (dryRunResult.metadata?.uid !== request.expected_uid || !desiredStateMatches(dryRunResult, request) ||
       !operationAnnotationsMatch(dryRunResult.metadata?.annotations, operationId, operationHash, 'patch') ||
-      !patchedInvariantsMatch(dryRunResult, request)) {
+      !invariantsMatch(dryRunResult, request)) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Kubernetes dry-run returned an inconsistent patched resource');
   }
   const updated = await applyPatch(request.kind, request.name, request.namespace, compiled.body);
   if (updated.metadata?.uid !== request.expected_uid || !updated.metadata?.resourceVersion ||
       updated.metadata.resourceVersion === current.metadata.resourceVersion || !desiredStateMatches(updated, request) ||
       !operationAnnotationsMatch(updated.metadata?.annotations, operationId, operationHash, 'patch') ||
-      !patchedInvariantsMatch(updated, request)) {
+      !invariantsMatch(updated, request)) {
     throw new ToolExecutionError(
       'KUBERNETES_ERROR',
       'Kubernetes accepted the patch but returned an inconsistent resource',
-      { outcome: 'unknown', operationId, reason: 'PostWriteVerificationFailed', phase: 'verification' }
+      { outcome: 'unknown', operationId, reason: 'PostWriteVerificationFailed', phase: 'verification' },
     );
   }
   return buildReceipt(request, updated, operationId, compiled);
@@ -512,10 +338,10 @@ export async function patchResourceHandler(request: PatchResourceRequest, contex
 
 export const patchResourceTool: ToolDefinition = {
   name: 'patch_resource',
-  description: 'Patch the exact remediationTarget after get_resource. Use its UID as expected_uid and current values as preconditions. Image example: changes=[{"type":"set_image","container_type":"container","container":"nginx","expected_image":"nginx:old","image":"nginx:new"}]. expected_image is the current image; image is the desired image. Never patch a generated Pod or guessed controller name.',
+  description: 'Patch an exact Service or Ingress after get_resource. Supports guarded resource metadata changes and explicitly enabled Service selector changes.',
   capability: 'write',
   timeoutMs: 20000,
-  version: 'v1',
+  version: 'v2',
   outputSchema: WRITE_TOOL_RESULT_OUTPUT_SCHEMA,
   artifactPolicy: 'never',
   schema: patchResourceSchema,

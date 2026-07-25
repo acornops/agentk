@@ -81,7 +81,10 @@ The agent is configured via environment variables:
 | `ACORNOPS_AGENT_TOOL_MAX_OUTPUT_BYTES` | Maximum serialized tool result size | `2097152` |
 | `ACORNOPS_AGENT_SCALE_MAX_REPLICAS` | Maximum accepted scale target (hard ceiling: 100) | `100` |
 | `ACORNOPS_AGENT_ALLOW_SCALE_TO_ZERO` | Operator opt-in required before caller-confirmed scale-to-zero | `false` |
-| `ACORNOPS_AGENT_PATCH_KINDS` | Comma-separated local maximum for `patch_resource` kinds | `Deployment,StatefulSet,DaemonSet` |
+| `ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS` | Comma-separated local maximum for `patch_workload` kinds | `Deployment,StatefulSet,DaemonSet` |
+| `ACORNOPS_AGENT_RESOURCE_PATCH_KINDS` | Comma-separated opt-in kinds for Service/Ingress `patch_resource` | Empty |
+| `ACORNOPS_AGENT_ALLOW_ENV_PATCH` | Operator opt-in for non-secret workload environment changes | `false` |
+| `ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH` | Operator opt-in for non-secret ConfigMap data changes | `false` |
 | `ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH` | Operator opt-in required before caller-confirmed Service selector changes | `false` |
 | `ACORNOPS_AGENT_RBAC_SCOPE` | Local RBAC boundary (`cluster` or `namespace`) | `cluster` |
 | `ACORNOPS_AGENT_WATCH_CACHE_ENABLED` | Build snapshots from a Kubernetes watch-backed local cache when ready | `true` |
@@ -200,10 +203,18 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-age
   --set rbac.write.enabled=true
 ```
 
-`patch_resource` accepts only semantic image and metadata operations. CronJob,
-Service, and Ingress patch permissions are additional explicit
-`patchPolicy.kinds` opt-ins. Service selector changes also require
-`patchPolicy.allowServiceSelectorChanges=true` and caller confirmation.
+`patch_workload` accepts semantic image, non-secret environment, and metadata
+operations. CronJob support is an explicit `patchPolicy.workloadKinds` opt-in.
+Service and Ingress support uses `patchPolicy.resourceKinds`.
+`patch_configmap` requires `patchPolicy.allowConfigMapChanges=true`; workload
+environment changes require `patchPolicy.allowEnvChanges=true`. Literal
+environment and ConfigMap values are limited to single-line, non-secret
+configuration of at most 4 KiB, and the caller must set
+`confirm_non_secret_data=true` for each request that supplies one. Service
+selector changes also require `patchPolicy.allowServiceSelectorChanges=true`
+and caller confirmation. ConfigMap get/list/watch RBAC is granted only when
+`patchPolicy.allowConfigMapChanges=true`; ConfigMap patch RBAC additionally
+requires `rbac.write.enabled=true`.
 
 For namespace-scoped installs, create Roles only in the watched namespaces:
 
@@ -450,4 +461,6 @@ Run the checks that match the change:
 - `get_resource_logs`: Read bounded Pod logs (max 1 MiB).
 - `restart_workload`: Guarded rolling restart for Deployments, StatefulSets, and DaemonSets.
 - `scale_workload`: Guarded scaling for Deployments and StatefulSets.
-- `patch_resource`: Apply a guarded semantic image, label, annotation, or explicitly enabled Service selector change.
+- `patch_workload`: Apply guarded workload image, single-line non-secret environment, label, or annotation changes.
+- `patch_resource`: Apply guarded Service or Ingress metadata and explicitly enabled Service selector changes.
+- `patch_configmap`: Set or remove bounded single-line non-secret ConfigMap data keys without restarting consumers.

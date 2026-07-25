@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { k8sClient } from '../../k8s/client.js';
-import { redactKubernetesResource } from '../resource-redaction.js';
+import { REDACTED, redactKubernetesResource } from '../resource-redaction.js';
 import { ToolDefinition } from '../registry.js';
 import { checkNamespaceAllowed } from '../utils.js';
 import { kubernetesNameSchema, namespaceSchema } from '../schemas.js';
@@ -8,12 +9,16 @@ import { boundedText, fullToolResultOutputSchema, identity } from '../model-cont
 
 const OUTPUT_SCHEMA = fullToolResultOutputSchema({
   type: 'object', required: ['resource'],
-  properties: { resource: { type: 'object' }, ownership: { type: 'object' } },
+  properties: {
+    resource: { type: 'object' },
+    ownership: { type: 'object' },
+    safeConfiguration: { type: 'object' },
+  },
   additionalProperties: false,
 });
 
 const schema = z.object({
-  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Ingress', 'PVC', 'Node', 'HPA', 'Event', 'Namespace']),
+  kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Ingress', 'ConfigMap', 'PVC', 'Node', 'HPA', 'Event', 'Namespace']),
   name: kubernetesNameSchema,
   namespace: namespaceSchema.optional()
 }).strict().superRefine((value, ctx) => {
@@ -23,7 +28,7 @@ const schema = z.object({
 });
 
 const API_VERSION_BY_KIND: Record<z.infer<typeof schema>['kind'], string> = {
-  Pod: 'v1', Service: 'v1', PVC: 'v1', Node: 'v1', Event: 'v1', Namespace: 'v1',
+  Pod: 'v1', Service: 'v1', ConfigMap: 'v1', PVC: 'v1', Node: 'v1', Event: 'v1', Namespace: 'v1',
   Deployment: 'apps/v1', StatefulSet: 'apps/v1', DaemonSet: 'apps/v1',
   CronJob: 'batch/v1', Job: 'batch/v1', Ingress: 'networking.k8s.io/v1', HPA: 'autoscaling/v2',
 };
@@ -59,8 +64,30 @@ function templateContainers(kind: string, resource: any): { containers: any[]; i
   const podSpec = kind === 'CronJob'
     ? resource?.spec?.jobTemplate?.spec?.template?.spec
     : resource?.spec?.template?.spec;
+  const summarizeEnv = (items: any) => Array.isArray(items)
+    ? items.map((item: any) => {
+        const configMapRef = item?.valueFrom?.configMapKeyRef;
+        if (typeof item?.value === 'string') {
+          return {
+            name: item?.name,
+            source: 'literal',
+            valueSha256: createHash('sha256').update(item.value).digest('hex'),
+          };
+        }
+        if (configMapRef) {
+          return {
+            name: item?.name,
+            source: 'config_map',
+            configMap: configMapRef.name,
+            key: configMapRef.key,
+            optional: Boolean(configMapRef.optional),
+          };
+        }
+        return { name: item?.name, source: 'unsupported' };
+      })
+    : [];
   const summarize = (items: any) => Array.isArray(items)
-    ? items.map((item: any) => ({ name: item?.name, image: item?.image }))
+    ? items.map((item: any) => ({ name: item?.name, image: item?.image, env: summarizeEnv(item?.env) }))
     : [];
   return { containers: summarize(podSpec?.containers), initContainers: summarize(podSpec?.initContainers) };
 }
@@ -87,14 +114,21 @@ async function readOwner(owner: OwnerRef, namespace: string): Promise<any> {
 }
 
 /** Build the exact patch prerequisites for a resolved workload target. */
-function target(kind: string, resource: any, namespace: string, effect: 'current_and_future_pods' | 'future_runs_only' | 'current_resource') {
+function target(
+  kind: string,
+  resource: any,
+  namespace: string,
+  effect: 'current_and_future_pods' | 'future_runs_only' | 'current_resource',
+  containers = templateContainers(kind, resource),
+) {
   return {
     kind,
     name: resource?.metadata?.name,
     namespace,
     uid: resource?.metadata?.uid,
+    resourceVersion: resource?.metadata?.resourceVersion,
     effect,
-    ...templateContainers(kind, resource),
+    ...containers,
   };
 }
 
@@ -164,6 +198,7 @@ async function readResource(kind: z.infer<typeof schema>['kind'], name: string, 
     case 'CronJob': return k8sClient.batch.readNamespacedCronJob({ name, namespace: namespace! });
     case 'Job': return k8sClient.batch.readNamespacedJob({ name, namespace: namespace! });
     case 'Service': return k8sClient.core.readNamespacedService({ name, namespace: namespace! });
+    case 'ConfigMap': return k8sClient.core.readNamespacedConfigMap({ name, namespace: namespace! });
     case 'Ingress': return k8sClient.networking.readNamespacedIngress({ name, namespace: namespace! });
     case 'PVC': return k8sClient.core.readNamespacedPersistentVolumeClaim({ name, namespace: namespace! });
     case 'Node': return k8sClient.core.readNode({ name });
@@ -178,9 +213,28 @@ async function readResource(kind: z.infer<typeof schema>['kind'], name: string, 
 async function handler(params: z.infer<typeof schema>) {
   const { kind, name, namespace } = params;
   checkNamespaceAllowed(namespace);
-  const resource = redactKubernetesResource(await readResource(kind, name, namespace));
-  const ownership = kind === 'Pod' ? await resolvePodOwnership(resource, namespace!) : undefined;
-  return { resource, ...(ownership ? { ownership } : {}) };
+  const original = await readResource(kind, name, namespace);
+  const resource = redactKubernetesResource(original);
+  if (kind === 'ConfigMap') {
+    if (original?.data !== undefined) {
+      resource.data = Object.fromEntries(Object.keys(original.data || {}).map((key) => [key, REDACTED]));
+    }
+    if (original?.binaryData !== undefined) {
+      resource.binaryData = Object.fromEntries(Object.keys(original.binaryData || {}).map((key) => [key, REDACTED]));
+    }
+  }
+  const ownership = kind === 'Pod' ? await resolvePodOwnership(original, namespace!) : undefined;
+  const safeConfiguration = {
+    ...templateContainers(kind, original),
+    configMapKeys: kind === 'ConfigMap'
+      ? Object.entries(original?.data || {}).map(([key, value]) => ({
+          key,
+          valueSha256: createHash('sha256').update(String(value)).digest('hex'),
+          bytes: Buffer.byteLength(String(value)),
+        })).sort((left, right) => left.key.localeCompare(right.key))
+      : [],
+  };
+  return { resource, safeConfiguration, ...(ownership ? { ownership } : {}) };
 }
 
 /** Summarize container status without copying the entire Pod status object. */
@@ -229,9 +283,13 @@ export const getResourceTool: ToolDefinition = {
     const resource = result?.resource || {};
     const status = resource?.status || {};
     const ownership = result?.ownership;
+    const safeContainers = {
+      containers: result?.safeConfiguration?.containers || templateContainers(params?.kind, resource).containers,
+      initContainers: result?.safeConfiguration?.initContainers || templateContainers(params?.kind, resource).initContainers,
+    };
     const name = resource?.metadata?.name || params?.name;
     const namespace = resource?.metadata?.namespace || params?.namespace;
-    const directlyPatchable = ['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Service', 'Ingress']
+    const directlyPatchable = ['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Service', 'Ingress', 'ConfigMap']
       .includes(params?.kind);
     const remediationTarget = ownership?.remediationTarget || (directlyPatchable
       ? target(
@@ -240,7 +298,8 @@ export const getResourceTool: ToolDefinition = {
         namespace,
         params.kind === 'CronJob'
           ? 'future_runs_only'
-          : ['Service', 'Ingress'].includes(params.kind) ? 'current_resource' : 'current_and_future_pods'
+          : ['Service', 'Ingress', 'ConfigMap'].includes(params.kind) ? 'current_resource' : 'current_and_future_pods',
+        safeContainers,
       )
       : null);
     const resolutionSummary = params?.kind === 'Pod'
@@ -282,8 +341,9 @@ export const getResourceTool: ToolDefinition = {
           initContainerStatuses: containerHealth(status.initContainerStatuses),
         },
         configuration: {
-          containers: templateContainers(params?.kind, resource).containers,
-          initContainers: templateContainers(params?.kind, resource).initContainers,
+          containers: result?.safeConfiguration?.containers || [],
+          initContainers: result?.safeConfiguration?.initContainers || [],
+          configMapKeys: result?.safeConfiguration?.configMapKeys || [],
           selector: resource?.spec?.selector,
           serviceType: resource?.spec?.type,
           clusterIP: resource?.spec?.clusterIP,

@@ -7,6 +7,8 @@ vi.mock('../../k8s/client.js', () => ({
       listPodForAllNamespaces: vi.fn(),
       listNamespacedService: vi.fn(),
       listServiceForAllNamespaces: vi.fn(),
+      listNamespacedConfigMap: vi.fn(),
+      listConfigMapForAllNamespaces: vi.fn(),
       listNamespacedPersistentVolumeClaim: vi.fn(),
       listPersistentVolumeClaimForAllNamespaces: vi.fn(),
       listNamespace: vi.fn(),
@@ -351,6 +353,43 @@ describe('listResourcesTool', () => {
         },
       ],
     });
+  });
+
+  it('lists ConfigMaps without returning data values', async () => {
+    vi.mocked(k8sClient.core.listNamespacedConfigMap).mockResolvedValue({
+      metadata: {},
+      items: [{
+        metadata: {
+          name: 'api-config',
+          namespace: 'default',
+          uid: 'configmap-uid',
+          creationTimestamp: '2024-01-04T00:00:00Z',
+        },
+        data: { LOG_LEVEL: 'debug' },
+        binaryData: { certificate: 'ZGVidWc=' },
+      }],
+    } as never);
+
+    const result = await listResourcesTool.handler({
+      kind: 'ConfigMap',
+      namespace: 'default',
+      limit: 10,
+    });
+
+    expect(result).toEqual({
+      kind: 'ConfigMap',
+      namespace: 'default',
+      total: 1,
+      continue_token: '',
+      items: [{
+        name: 'api-config',
+        namespace: 'default',
+        uid: 'configmap-uid',
+        createdAt: '2024-01-04T00:00:00Z',
+      }],
+    });
+    expect(JSON.stringify(result)).not.toContain('debug');
+    expect(JSON.stringify(result)).not.toContain('ZGVidWc=');
   });
 
   it('lists and summarizes Ingress, PVC, and HPA resources', async () => {

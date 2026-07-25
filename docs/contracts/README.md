@@ -97,7 +97,9 @@ Current control-plane-expected builtin tool names:
 - `get_resource_logs`
 - `restart_workload`
 - `scale_workload`
+- `patch_workload`
 - `patch_resource`
+- `patch_configmap`
 
 For `list_resources`, omitting `namespace` means all namespaces allowed by the
 effective AgentK scope. Callers must not pass synthetic namespace values such as
@@ -170,17 +172,30 @@ The tool implementation remains local to the agent, but the advertised schemas a
 must not infer an owning workload name from a Pod name; they should use
 the `remediationTarget` returned by Pod reads. That projection follows a
 UID-verified owner path when necessary and provides the exact owning workload
-kind/name, UID, container names, and current images required by `patch_resource`.
+kind/name, UID, resource version, container names, current images, and
+source-redacted environment descriptors required by `patch_workload`.
+Direct ConfigMap reads expose bounded key names, sizes, and value fingerprints
+for `patch_configmap`; literal values remain outside model context.
 
 Common Kubernetes client failures cross the tool boundary as sanitized stable
 codes: `RESOURCE_NOT_FOUND`, `KUBERNETES_FORBIDDEN`, `KUBERNETES_TIMEOUT`, and
 `KUBERNETES_UNAVAILABLE`. Error data may contain HTTP status, stable reason, and
 the requested kind/name/namespace, but never the raw Kubernetes response body.
 
-`restart_workload`, `scale_workload`, and `patch_resource` return minimal mutation receipts with
+`restart_workload`, `scale_workload`, `patch_workload`, `patch_resource`, and
+`patch_configmap` return minimal mutation receipts with
 `operationId`, target identity, requested change, and observed resource version;
 they do not return full Kubernetes workload objects.
 The execution engine's tool call ID is preserved through llm-gateway and the
 control plane as the AgentK JSON-RPC request ID, allowing a same-connection retry
 to derive the same operation ID. A reused operation ID with different validated
 arguments is rejected.
+
+`patch_workload` owns Deployment, StatefulSet, DaemonSet, and CronJob image,
+single-line non-secret environment, and metadata mutations. `patch_resource`
+owns the existing Service and Ingress metadata and Service-selector mutations.
+`patch_configmap` owns bounded single-line non-secret ConfigMap `data` key
+mutations. Requests that supply literal environment or ConfigMap values must
+set `confirm_non_secret_data=true`; each literal is limited to 4 KiB and cannot
+contain control or format characters. ConfigMap writes never restart consumers
+automatically.

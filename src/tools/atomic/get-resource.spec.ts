@@ -5,6 +5,7 @@ vi.mock('../../k8s/client.js', () => ({
     core: {
       readNamespacedPod: vi.fn(),
       readNamespacedService: vi.fn(),
+      readNamespacedConfigMap: vi.fn(),
       readNamespacedPersistentVolumeClaim: vi.fn(),
       readNode: vi.fn(),
       readNamespacedEvent: vi.fn(),
@@ -51,6 +52,7 @@ describe('getResourceTool', () => {
     ['CronJob', vi.mocked(k8sClient.batch.readNamespacedCronJob), { name: 'api', namespace: 'default' }],
     ['Job', vi.mocked(k8sClient.batch.readNamespacedJob), { name: 'api', namespace: 'default' }],
     ['Service', vi.mocked(k8sClient.core.readNamespacedService), { name: 'api', namespace: 'default' }],
+    ['ConfigMap', vi.mocked(k8sClient.core.readNamespacedConfigMap), { name: 'api', namespace: 'default' }],
     ['Ingress', vi.mocked(k8sClient.networking.readNamespacedIngress), { name: 'api', namespace: 'default' }],
     ['PVC', vi.mocked(k8sClient.core.readNamespacedPersistentVolumeClaim), { name: 'api', namespace: 'default' }],
     ['HPA', vi.mocked(k8sClient.autoscaling.readNamespacedHorizontalPodAutoscaler), { name: 'api', namespace: 'default' }],
@@ -81,7 +83,7 @@ describe('getResourceTool', () => {
         kind: 'Node',
         name: 'worker-1',
       })
-    ).resolves.toEqual({ resource: node });
+    ).resolves.toMatchObject({ resource: node });
 
     expect(k8sClient.core.readNode).toHaveBeenCalledWith({ name: 'worker-1' });
 
@@ -90,7 +92,7 @@ describe('getResourceTool', () => {
         kind: 'Namespace',
         name: 'payments',
       }),
-    ).resolves.toEqual({ resource: namespace });
+    ).resolves.toMatchObject({ resource: namespace });
 
     expect(k8sClient.core.readNamespace).toHaveBeenCalledWith({ name: 'payments' });
   });
@@ -324,6 +326,52 @@ describe('getResourceTool', () => {
     });
   });
 
+  it('uses original literal environment fingerprints in direct workload projections', async () => {
+    vi.mocked(k8sClient.apps.readNamespacedDeployment).mockResolvedValue({
+      apiVersion: 'apps/v1',
+      kind: 'Deployment',
+      metadata: {
+        name: 'api',
+        namespace: 'default',
+        uid: 'deployment-1',
+        resourceVersion: '7',
+      },
+      spec: {
+        selector: { matchLabels: { app: 'api' } },
+        template: {
+          metadata: { labels: { app: 'api' } },
+          spec: {
+            containers: [{
+              name: 'api',
+              image: 'registry.example.test/api:v1',
+              env: [{ name: 'LOG_LEVEL', value: 'debug' }],
+            }],
+          },
+        },
+      },
+    } as never);
+
+    const result = await getResourceTool.handler({
+      kind: 'Deployment',
+      name: 'api',
+      namespace: 'default',
+    });
+    const context = getResourceTool.projectForModel(result, {
+      kind: 'Deployment',
+      name: 'api',
+      namespace: 'default',
+    });
+
+    expect(result.resource.spec.template.spec.containers[0].env[0].value).toBe('<redacted>');
+    expect(context.data.remediationTarget.containers[0].env).toEqual([
+      {
+        name: 'LOG_LEVEL',
+        source: 'literal',
+        valueSha256: '0b8e9e995d8d77f1e4770f0f79665aee6f3f70247b3735422daba73df4c3096f',
+      },
+    ]);
+  });
+
   it('projects an exact remediation target for a directly patchable Ingress', () => {
     const context = getResourceTool.projectForModel(
       {
@@ -496,13 +544,33 @@ describe('getResourceTool', () => {
     expect(k8sClient.core.readNamespacedPod).not.toHaveBeenCalled();
   });
 
-  it('throws for unsupported kinds when called directly', async () => {
-    await expect(
-      getResourceTool.handler({
-        kind: 'ConfigMap',
-        name: 'api',
-        namespace: 'default',
-      } as never),
-    ).rejects.toThrow('Unsupported kind: ConfigMap');
+  it('projects ConfigMap keys without exposing values', async () => {
+    vi.mocked(k8sClient.core.readNamespacedConfigMap).mockResolvedValue({
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: { name: 'api', namespace: 'default', uid: 'cm-uid', resourceVersion: '7' },
+      data: { LOG_LEVEL: 'debug' },
+      binaryData: { certificate: 'ZGVidWc=' },
+    } as never);
+
+    const result = await getResourceTool.handler({
+      kind: 'ConfigMap',
+      name: 'api',
+      namespace: 'default',
+    } as never);
+    const projection = getResourceTool.projectForModel(result, {
+      kind: 'ConfigMap',
+      name: 'api',
+      namespace: 'default',
+    });
+
+    expect(projection.data.configuration.configMapKeys).toEqual([
+      { key: 'LOG_LEVEL', valueSha256: expect.stringMatching(/^[a-f0-9]{64}$/), bytes: 5 },
+    ]);
+    expect(result.resource.data).toEqual({ LOG_LEVEL: '<redacted>' });
+    expect(result.resource.binaryData).toEqual({ certificate: '<redacted>' });
+    expect(JSON.stringify(result.resource)).not.toContain('debug');
+    expect(JSON.stringify(result.resource)).not.toContain('ZGVidWc=');
+    expect(JSON.stringify(projection)).not.toContain('debug');
   });
 });

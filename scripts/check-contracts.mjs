@@ -31,7 +31,9 @@ const getResource = read('src/tools/atomic/get-resource.ts');
 const getResourceLogs = read('src/tools/atomic/get-resource-logs.ts');
 const restartWorkload = read('src/tools/atomic/restart-workload.ts');
 const scaleWorkload = read('src/tools/atomic/scale.ts');
+const patchWorkload = read('src/tools/atomic/patch-workload.ts');
 const patchResource = read('src/tools/atomic/patch-resource.ts');
+const patchConfigMap = read('src/tools/atomic/patch-configmap.ts');
 const manualDeployment = read('deploy/deployment.yaml');
 const manualRbac = read('deploy/rbac.yaml');
 const localDevelopment = read('deploy/local-development.yaml');
@@ -94,7 +96,9 @@ for (const [source, toolName] of [
   [getResourceLogs, 'get_resource_logs'],
   [restartWorkload, 'restart_workload'],
   [scaleWorkload, 'scale_workload'],
-  [patchResource, 'patch_resource']
+  [patchWorkload, 'patch_workload'],
+  [patchResource, 'patch_resource'],
+  [patchConfigMap, 'patch_configmap']
 ]) {
   expectIncludes(doc, toolName, 'Builtin tool doc');
   expectIncludes(source, `name: '${toolName}'`, 'Builtin tool implementation');
@@ -104,8 +108,10 @@ expectIncludes(getResource, 'remediationTarget', 'get_resource owning workload r
 expectIncludes(listResources, 'omit namespace entirely', 'list_resources all-namespace guidance');
 expectIncludes(listResources, "value.namespace === 'all'", 'list_resources literal all rejection');
 expectIncludes(getResource, 'UID-verified ownership path', 'get_resource guarded patch guidance');
-expectIncludes(patchResource, 'after get_resource', 'patch_resource prerequisite read guidance');
-expectIncludes(patchResource, 'expected_image is the current image', 'patch_resource image precondition guidance');
+expectIncludes(patchWorkload, 'after get_resource', 'patch_workload prerequisite read guidance');
+expectIncludes(patchWorkload, 'environment', 'patch_workload environment guidance');
+expectIncludes(patchConfigMap, 'after get_resource', 'patch_configmap prerequisite read guidance');
+expectIncludes(patchConfigMap, 'Does not restart consumers', 'patch_configmap activation guidance');
 for (const code of ['RESOURCE_NOT_FOUND', 'KUBERNETES_FORBIDDEN', 'KUBERNETES_TIMEOUT', 'KUBERNETES_UNAVAILABLE']) {
   expectIncludes(doc, code, 'Sanitized Kubernetes tool error contract');
 }

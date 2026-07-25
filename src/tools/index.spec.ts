@@ -7,6 +7,8 @@ import { listResourcesTool } from './atomic/list-resources.js';
 import { restartWorkloadTool } from './atomic/restart-workload.js';
 import { scaleWorkloadTool } from './atomic/scale.js';
 import { patchResourceTool } from './atomic/patch-resource.js';
+import { patchWorkloadTool } from './atomic/patch-workload.js';
+import { patchConfigMapTool } from './atomic/patch-configmap.js';
 
 describe('registerAllTools', () => {
   it('registers each built-in tool with the shared registry', () => {
@@ -19,6 +21,8 @@ describe('registerAllTools', () => {
     expect(registerSpy).toHaveBeenCalledWith(getResourceTool);
     expect(registerSpy).toHaveBeenCalledWith(restartWorkloadTool);
     expect(registerSpy).toHaveBeenCalledWith(scaleWorkloadTool);
+    expect(registerSpy).toHaveBeenCalledWith(patchWorkloadTool);
     expect(registerSpy).toHaveBeenCalledWith(patchResourceTool);
+    expect(registerSpy).toHaveBeenCalledWith(patchConfigMapTool);
   });
 });

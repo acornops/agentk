@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { zodToJsonSchema } from './json-schema.js';
-import { patchResourceSchema } from './atomic/patch-resource.js';
+import { patchWorkloadSchema } from './atomic/patch-workload.js';
+import { patchConfigMapSchema } from './atomic/patch-configmap.js';
 
 describe('zodToJsonSchema', () => {
   it('preserves refined object fields and discriminated semantic operations', () => {
@@ -28,16 +29,26 @@ describe('zodToJsonSchema', () => {
   });
 
   it('advertises the structured patch operation union to tool consumers', () => {
-    const schema = zodToJsonSchema(patchResourceSchema) as any;
+    const schema = zodToJsonSchema(patchWorkloadSchema) as any;
     expect(schema.properties.kind.enum).toEqual([
-      'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Service', 'Ingress',
+      'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob',
     ]);
     expect(schema.properties.changes.minItems).toBe(1);
     expect(schema.properties.changes.maxItems).toBe(10);
-    expect(schema.properties.changes.items.oneOf).toHaveLength(7);
+    expect(schema.properties.changes.items.oneOf).toHaveLength(8);
     expect(schema.properties.changes.items.oneOf[0]).toMatchObject({
       properties: { type: { const: 'set_image' }, container: { type: 'string' } },
       additionalProperties: false,
     });
+  });
+
+  it('advertises explicit non-secret confirmation for ConfigMap writes', () => {
+    const schema = zodToJsonSchema(patchConfigMapSchema) as any;
+
+    expect(schema.properties.confirm_non_secret_data).toEqual({ const: true });
+    expect(schema.required).toContain('confirm_non_secret_data');
+    expect(schema.properties.changes.items.oneOf).toHaveLength(2);
+    expect(schema.properties.changes.items.oneOf.map((item: any) => item.properties.type.const))
+      .toEqual(['set_key', 'remove_key']);
   });
 });

@@ -95,8 +95,14 @@ spec:
               value: {{ .Values.config.scaleMaxReplicas | quote }}
             - name: ACORNOPS_AGENT_ALLOW_SCALE_TO_ZERO
               value: {{ .Values.config.allowScaleToZero | quote }}
-            - name: ACORNOPS_AGENT_PATCH_KINDS
-              value: {{ join "," .Values.patchPolicy.kinds | quote }}
+            - name: ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS
+              value: {{ join "," .Values.patchPolicy.workloadKinds | quote }}
+            - name: ACORNOPS_AGENT_RESOURCE_PATCH_KINDS
+              value: {{ join "," .Values.patchPolicy.resourceKinds | quote }}
+            - name: ACORNOPS_AGENT_ALLOW_ENV_PATCH
+              value: {{ .Values.patchPolicy.allowEnvChanges | quote }}
+            - name: ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH
+              value: {{ .Values.patchPolicy.allowConfigMapChanges | quote }}
             - name: ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH
               value: {{ .Values.patchPolicy.allowServiceSelectorChanges | quote }}
             - name: ACORNOPS_AGENT_RBAC_SCOPE

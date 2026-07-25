@@ -192,18 +192,34 @@
     "patchPolicy": {
       "type": "object",
       "properties": {
-        "kinds": {
+        "workloadKinds": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "enum": ["Deployment", "StatefulSet", "DaemonSet", "CronJob", "Service", "Ingress"]
+            "enum": ["Deployment", "StatefulSet", "DaemonSet", "CronJob"]
           }
         },
+        "resourceKinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["Service", "Ingress"]
+          }
+        },
+        "allowEnvChanges": { "type": "boolean" },
+        "allowConfigMapChanges": { "type": "boolean" },
         "allowServiceSelectorChanges": { "type": "boolean" }
       },
-      "required": ["kinds", "allowServiceSelectorChanges"]
+      "required": [
+        "workloadKinds",
+        "resourceKinds",
+        "allowEnvChanges",
+        "allowConfigMapChanges",
+        "allowServiceSelectorChanges"
+      ]
     },
     "topologySpreadConstraints": {
       "type": "array"

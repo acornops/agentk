@@ -6,4 +6,5 @@ Keep only completed plans that remain useful as durable design or validation con
 
 - [Platform additional CA trust](platform-additional-ca-trust.md)
 - [Sanitized tool failure logging](sanitized-tool-failure-logging.md)
+- [Workload and ConfigMap patching](workload-configmap-patching.md)
 - [Write RBAC and Kubernetes API errors](write-rbac-and-api-errors.md)

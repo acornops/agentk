@@ -2,9 +2,11 @@ import { z } from 'zod';
 import { isKubernetesDnsLabel } from './k8s/names.js';
 
 export const DEFAULT_EXCLUDED_NAMESPACES = ['kube-node-lease', 'kube-public'];
-export const SUPPORTED_PATCH_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Service', 'Ingress'] as const;
-export type SupportedPatchKind = typeof SUPPORTED_PATCH_KINDS[number];
-const DEFAULT_PATCH_KINDS: SupportedPatchKind[] = ['Deployment', 'StatefulSet', 'DaemonSet'];
+export const SUPPORTED_WORKLOAD_PATCH_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob'] as const;
+export type SupportedWorkloadPatchKind = typeof SUPPORTED_WORKLOAD_PATCH_KINDS[number];
+const DEFAULT_WORKLOAD_PATCH_KINDS: SupportedWorkloadPatchKind[] = ['Deployment', 'StatefulSet', 'DaemonSet'];
+export const SUPPORTED_RESOURCE_PATCH_KINDS = ['Service', 'Ingress'] as const;
+export type SupportedResourcePatchKind = typeof SUPPORTED_RESOURCE_PATCH_KINDS[number];
 
 /** Parse and validate a comma-separated Kubernetes namespace environment value. */
 function parseNamespaceList(value: string | undefined, ctx: z.RefinementCtx): string[] {
@@ -18,19 +20,32 @@ function parseNamespaceList(value: string | undefined, ctx: z.RefinementCtx): st
 }
 
 /** Parse and validate the local maximum set of patchable resource kinds. */
-function parsePatchKindList(value: string | undefined, ctx: z.RefinementCtx): SupportedPatchKind[] {
-  const source = value === undefined ? DEFAULT_PATCH_KINDS.join(',') : value;
+function parseWorkloadPatchKindList(value: string | undefined, ctx: z.RefinementCtx): SupportedWorkloadPatchKind[] {
+  const source = value === undefined ? DEFAULT_WORKLOAD_PATCH_KINDS.join(',') : value;
   const rawKinds = source.split(',').map((item) => item.trim()).filter(Boolean);
   const kinds = [...new Set(rawKinds)];
   if (kinds.length === 0) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'At least one patch kind is required' });
   }
   for (const kind of kinds) {
-    if (!SUPPORTED_PATCH_KINDS.includes(kind as SupportedPatchKind)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Unsupported patch kind: ${kind}` });
+    if (!SUPPORTED_WORKLOAD_PATCH_KINDS.includes(kind as SupportedWorkloadPatchKind)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Unsupported workload patch kind: ${kind}` });
     }
   }
-  return kinds.filter((kind): kind is SupportedPatchKind => SUPPORTED_PATCH_KINDS.includes(kind as SupportedPatchKind));
+  return kinds.filter((kind): kind is SupportedWorkloadPatchKind =>
+    SUPPORTED_WORKLOAD_PATCH_KINDS.includes(kind as SupportedWorkloadPatchKind));
+}
+
+/** Parse the explicit local opt-in set of patchable Service and Ingress kinds. */
+function parseResourcePatchKindList(value: string | undefined, ctx: z.RefinementCtx): SupportedResourcePatchKind[] {
+  const kinds = [...new Set((value || '').split(',').map((item) => item.trim()).filter(Boolean))];
+  for (const kind of kinds) {
+    if (!SUPPORTED_RESOURCE_PATCH_KINDS.includes(kind as SupportedResourcePatchKind)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Unsupported resource patch kind: ${kind}` });
+    }
+  }
+  return kinds.filter((kind): kind is SupportedResourcePatchKind =>
+    SUPPORTED_RESOURCE_PATCH_KINDS.includes(kind as SupportedResourcePatchKind));
 }
 
 const configSchema = z.object({
@@ -51,7 +66,10 @@ const configSchema = z.object({
   ACORNOPS_AGENT_TOOL_MAX_OUTPUT_BYTES: z.coerce.number().int().min(1024).max(2 * 1024 * 1024).default(2 * 1024 * 1024),
   ACORNOPS_AGENT_SCALE_MAX_REPLICAS: z.coerce.number().int().min(1).max(100).default(100),
   ACORNOPS_AGENT_ALLOW_SCALE_TO_ZERO: z.string().optional().default('false').transform(val => val === 'true'),
-  ACORNOPS_AGENT_PATCH_KINDS: z.string().optional().transform(parsePatchKindList),
+  ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS: z.string().optional().transform(parseWorkloadPatchKindList),
+  ACORNOPS_AGENT_RESOURCE_PATCH_KINDS: z.string().optional().default('').transform(parseResourcePatchKindList),
+  ACORNOPS_AGENT_ALLOW_ENV_PATCH: z.string().optional().default('false').transform(val => val === 'true'),
+  ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH: z.string().optional().default('false').transform(val => val === 'true'),
   ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH: z.string().optional().default('false').transform(val => val === 'true'),
   ACORNOPS_AGENT_RBAC_SCOPE: z.enum(['cluster', 'namespace']).default('cluster'),
   ACORNOPS_AGENT_WATCH_CACHE_ENABLED: z.string().optional().default('true').transform(val => val === 'true'),

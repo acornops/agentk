@@ -118,7 +118,9 @@ describe('E2E Agent Lifecycle', () => {
             'get_resource_logs',
             'restart_workload',
             'scale_workload',
+            'patch_workload',
             'patch_resource',
+            'patch_configmap',
           ],
           writeEnabled: false,
         },
@@ -146,8 +148,10 @@ describe('E2E Agent Lifecycle', () => {
     );
     const listedTools = ((toolsListResponse.parsed?.result as { tools?: Array<{ name?: string }> })?.tools) || [];
     expect(listedTools.some((tool) => tool.name === 'list_resources')).toBe(true);
-    expect(listedTools).toHaveLength(6);
+    expect(listedTools).toHaveLength(8);
+    expect(listedTools.some((tool) => tool.name === 'patch_workload')).toBe(true);
     expect(listedTools.some((tool) => tool.name === 'patch_resource')).toBe(true);
+    expect(listedTools.some((tool) => tool.name === 'patch_configmap')).toBe(true);
     expect(listedTools.some((tool) => tool.name === 'simulate_patch')).toBe(false);
     expect(listedTools.some((tool) => tool.name === 'apply_remediation')).toBe(false);
 
@@ -170,7 +174,7 @@ describe('E2E Agent Lifecycle', () => {
       jsonrpc: '2.0',
       id: 'tools-call-write-disabled',
       method: 'tools/call',
-      params: { name: 'patch_resource', arguments: {} },
+      params: { name: 'patch_workload', arguments: {} },
     }));
     const writeDisabledResponse = await waitForMessage(
       messages,

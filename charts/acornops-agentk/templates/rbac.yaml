@@ -40,6 +40,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log", "services", "persistentvolumeclaims", "events", "nodes", "namespaces"]
     verbs: ["get", "list", "watch"]
+  {{- if .Values.patchPolicy.allowConfigMapChanges }}
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
     verbs: ["get", "list", "watch"]
@@ -59,19 +64,24 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["patch"]
-  {{- if has "CronJob" .Values.patchPolicy.kinds }}
+  {{- if has "CronJob" .Values.patchPolicy.workloadKinds }}
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
     verbs: ["patch"]
   {{- end }}
-  {{- if has "Service" .Values.patchPolicy.kinds }}
+  {{- if has "Service" .Values.patchPolicy.resourceKinds }}
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["patch"]
   {{- end }}
-  {{- if has "Ingress" .Values.patchPolicy.kinds }}
+  {{- if has "Ingress" .Values.patchPolicy.resourceKinds }}
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
+    verbs: ["patch"]
+  {{- end }}
+  {{- if .Values.patchPolicy.allowConfigMapChanges }}
+  - apiGroups: [""]
+    resources: ["configmaps"]
     verbs: ["patch"]
   {{- end }}
   {{- end }}
@@ -107,6 +117,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log", "services", "persistentvolumeclaims", "events"]
     verbs: ["get", "list", "watch"]
+  {{- if $root.Values.patchPolicy.allowConfigMapChanges }}
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
     verbs: ["get", "list", "watch"]
@@ -126,19 +141,24 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["patch"]
-  {{- if has "CronJob" $root.Values.patchPolicy.kinds }}
+  {{- if has "CronJob" $root.Values.patchPolicy.workloadKinds }}
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
     verbs: ["patch"]
   {{- end }}
-  {{- if has "Service" $root.Values.patchPolicy.kinds }}
+  {{- if has "Service" $root.Values.patchPolicy.resourceKinds }}
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["patch"]
   {{- end }}
-  {{- if has "Ingress" $root.Values.patchPolicy.kinds }}
+  {{- if has "Ingress" $root.Values.patchPolicy.resourceKinds }}
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
+    verbs: ["patch"]
+  {{- end }}
+  {{- if $root.Values.patchPolicy.allowConfigMapChanges }}
+  - apiGroups: [""]
+    resources: ["configmaps"]
     verbs: ["patch"]
   {{- end }}
   {{- end }}

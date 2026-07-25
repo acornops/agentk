@@ -49,44 +49,57 @@ describe('config', () => {
     expect(config.ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS).toBe(5000);
     expect(config.ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS).toBe(15000);
     expect(config.ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS).toBe(300);
-    expect(config.ACORNOPS_AGENT_PATCH_KINDS).toEqual(['Deployment', 'StatefulSet', 'DaemonSet']);
+    expect(config.ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS).toEqual(['Deployment', 'StatefulSet', 'DaemonSet']);
+    expect(config.ACORNOPS_AGENT_RESOURCE_PATCH_KINDS).toEqual([]);
+    expect(config.ACORNOPS_AGENT_ALLOW_ENV_PATCH).toBe(false);
+    expect(config.ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH).toBe(false);
     expect(config.ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH).toBe(false);
     expect(config.TARGET_ID).toBe('cluster-1');
   });
 
   it('accepts explicit structured patch policy settings', async () => {
     setBaseEnv({
-      ACORNOPS_AGENT_PATCH_KINDS: 'Deployment,CronJob,Service,Ingress',
+      ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS: 'Deployment,CronJob',
+      ACORNOPS_AGENT_RESOURCE_PATCH_KINDS: 'Service,Ingress',
+      ACORNOPS_AGENT_ALLOW_ENV_PATCH: 'true',
+      ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH: 'true',
       ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH: 'true',
     });
 
     const { config } = await importConfigModule();
 
-    expect(config.ACORNOPS_AGENT_PATCH_KINDS).toEqual(['Deployment', 'CronJob', 'Service', 'Ingress']);
+    expect(config.ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS).toEqual(['Deployment', 'CronJob']);
+    expect(config.ACORNOPS_AGENT_RESOURCE_PATCH_KINDS).toEqual(['Service', 'Ingress']);
+    expect(config.ACORNOPS_AGENT_ALLOW_ENV_PATCH).toBe(true);
+    expect(config.ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH).toBe(true);
     expect(config.ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH).toBe(true);
   });
 
   it('rejects unsupported structured patch kinds', async () => {
-    setBaseEnv({ ACORNOPS_AGENT_PATCH_KINDS: 'Deployment,Secret' });
+    setBaseEnv({ ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS: 'Deployment,Secret' });
     vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit:1'); }) as never);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     await expect(importConfigModule()).rejects.toThrow('process.exit:1');
     expect(errorSpy).toHaveBeenCalledWith(
       '❌ Invalid configuration:',
-      expect.objectContaining({ ACORNOPS_AGENT_PATCH_KINDS: expect.arrayContaining([expect.stringContaining('Unsupported patch kind')]) }),
+      expect.objectContaining({
+        ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS: expect.arrayContaining([expect.stringContaining('Unsupported workload patch kind')]),
+      }),
     );
   });
 
   it('rejects an explicitly empty structured patch policy', async () => {
-    setBaseEnv({ ACORNOPS_AGENT_PATCH_KINDS: '' });
+    setBaseEnv({ ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS: '' });
     vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit:1'); }) as never);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     await expect(importConfigModule()).rejects.toThrow('process.exit:1');
     expect(errorSpy).toHaveBeenCalledWith(
       '❌ Invalid configuration:',
-      expect.objectContaining({ ACORNOPS_AGENT_PATCH_KINDS: expect.arrayContaining([expect.stringContaining('At least one patch kind')]) }),
+      expect.objectContaining({
+        ACORNOPS_AGENT_WORKLOAD_PATCH_KINDS: expect.arrayContaining([expect.stringContaining('At least one patch kind')]),
+      }),
     );
   });
 

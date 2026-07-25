@@ -2,7 +2,7 @@ export interface WriteReceipt {
   success: true;
   operationId: string;
   target: {
-    kind: 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'CronJob' | 'Service' | 'Ingress';
+    kind: 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'CronJob' | 'Service' | 'Ingress' | 'ConfigMap';
     namespace: string;
     name: string;
     uid: string;

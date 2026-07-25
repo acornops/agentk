@@ -56,11 +56,24 @@
 - Successful write responses must retain the expected identity, requested
   state, resource-version advance, and AcornOps idempotency record.
 - Write tools return minimal receipts rather than complete workload specifications.
-- `patch_resource` accepts semantic operations only. Callers cannot provide raw
+- `patch_workload`, `patch_resource`, and `patch_configmap` accept semantic operations only. Callers cannot provide raw
   JSON Patch paths, YAML, arbitrary object fragments, or secret-bearing fields.
-- Structured patches verify target UID and expected values, use live
+- Structured patches verify target UID, inspected resource version, and
+  expected field state, use live
   resource-version tests, pass Kubernetes dry-run, and then apply the identical
   guarded patch.
+- Literal environment and ConfigMap values are restricted to explicitly
+  confirmed, single-line non-secret configuration of at most 4 KiB and are
+  omitted from receipts and durable tool-call events. ConfigMap `data` and
+  `binaryData` values are also redacted from complete read results; guarded
+  evidence exposes only bounded key metadata and `data` value fingerprints.
+  Secret resources and secret-bearing key names are rejected. Name heuristics
+  are defense in depth rather than secret detection: operators must use
+  Kubernetes Secrets for confidential values and keep these opt-ins disabled
+  where that separation cannot be guaranteed.
+- ConfigMap get/list/watch RBAC follows the explicit ConfigMap-change opt-in;
+  ConfigMap patch RBAC additionally requires global write enablement. Default
+  read-only installs do not gain ConfigMap access.
 - Pod logs are sensitive application data. AgentK bounds but does not persist or log tool results.
 - Tool failure logs use a fixed allowlist of identity-free status, reason, phase,
   outcome, and operation-correlation fields. Raw exceptions, Kubernetes bodies,

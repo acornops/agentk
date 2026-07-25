@@ -121,7 +121,8 @@ refusals require network investigation.
 - Scale-to-zero is disabled unless both the operator and the caller confirm it.
 - Structured patching defaults to Deployment, StatefulSet, and DaemonSet.
   CronJob, Service, and Ingress patch RBAC must be opted into through
-  `patchPolicy.kinds`.
+  `patchPolicy.workloadKinds`, `patchPolicy.resourceKinds`, and the explicit
+  environment or ConfigMap opt-ins.
 - Service selector changes require both operator enablement and caller
   confirmation because they can immediately redirect traffic.
 - Namespace-scoped installs use their Role namespaces as the local maximum scope.

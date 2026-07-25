@@ -36,7 +36,9 @@
         "get_resource_logs",
         "restart_workload",
         "scale_workload",
-        "patch_resource"
+        "patch_workload",
+        "patch_resource",
+        "patch_configmap"
       ],
       "snapshotFields": [
         "metrics.available",
