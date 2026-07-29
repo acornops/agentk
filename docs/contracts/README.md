@@ -67,7 +67,10 @@ Handshake request:
 `agentType` is exactly `agentk`; the legacy `k8s_agent` value is not supported.
 `advertisedTools` is derived from the live AgentK tool registry. Each entry
 identifies the exact registered tool name and its read/write capability; it is
-not a fallback grant.
+not a fallback grant. AgentK advertises every registered tool even when a local
+write or fine-grained patch policy would reject a call. Advertisement means the
+tool exists; session, run, local write, patch-kind, environment, ConfigMap,
+namespace, and Kubernetes RBAC policy remain fail-closed execution ceilings.
 
 Handshake success response must include:
 

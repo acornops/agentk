@@ -40,6 +40,7 @@
         "patch_resource",
         "patch_configmap"
       ],
+      "toolAdvertisementPolicy": "Every registered AgentK tool is advertised and discoverable; session, run, local write, patch-kind, environment, ConfigMap, namespace, and Kubernetes RBAC policy remain fail-closed execution ceilings.",
       "snapshotFields": [
         "metrics.available",
         "metrics.nodes[].usage.{cpu,memory}",

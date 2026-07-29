@@ -34,10 +34,26 @@ const scaleWorkload = read('src/tools/atomic/scale.ts');
 const patchWorkload = read('src/tools/atomic/patch-workload.ts');
 const patchResource = read('src/tools/atomic/patch-resource.ts');
 const patchConfigMap = read('src/tools/atomic/patch-configmap.ts');
+const toolIndex = read('src/tools/index.ts');
 const manualDeployment = read('deploy/deployment.yaml');
 const manualRbac = read('deploy/rbac.yaml');
 const localDevelopment = read('deploy/local-development.yaml');
 const controlPlaneContract = manifest.counterparts?.['control-plane'];
+const builtinToolContracts = [
+  [listResources, 'list_resources', 'listResourcesTool'],
+  [getResource, 'get_resource', 'getResourceTool'],
+  [getResourceLogs, 'get_resource_logs', 'getResourceLogsTool'],
+  [restartWorkload, 'restart_workload', 'restartWorkloadTool'],
+  [scaleWorkload, 'scale_workload', 'scaleWorkloadTool'],
+  [patchWorkload, 'patch_workload', 'patchWorkloadTool'],
+  [patchResource, 'patch_resource', 'patchResourceTool'],
+  [patchConfigMap, 'patch_configmap', 'patchConfigMapTool']
+];
+const expectedBuiltinToolNames = builtinToolContracts.map(([, toolName]) => toolName);
+const expectedRegisteredToolDefinitions = builtinToolContracts.map(([, , definition]) => definition);
+const registeredToolDefinitions = [
+  ...toolIndex.matchAll(/toolRegistry\.register\((\w+)\);/g)
+].map((match) => match[1]);
 
 expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)', 'README contract link');
 expectIncludes(readme, '[`docs/contracts/manifest.json`](docs/contracts/manifest.json)', 'README manifest link');
@@ -47,6 +63,25 @@ expect(
   'Control-plane contract should expose only the canonical agentType value'
 );
 expectIncludes(lifecycle, "agentType: 'agentk'", 'Canonical agentType implementation');
+expect(
+  JSON.stringify(controlPlaneContract?.builtinToolNames) === JSON.stringify(expectedBuiltinToolNames),
+  'Control-plane contract must contain the complete registered tool catalog'
+);
+expect(
+  registeredToolDefinitions.length === expectedRegisteredToolDefinitions.length
+    && JSON.stringify([...registeredToolDefinitions].sort()) === JSON.stringify([...expectedRegisteredToolDefinitions].sort()),
+  'Tool registry and contract checker must contain the same complete tool catalog'
+);
+expectIncludes(
+  lifecycle,
+  'advertisedTools: toolRegistry.getAll().map',
+  'Full registered tool catalog advertisement'
+);
+expectIncludes(
+  doc,
+  'AgentK advertises every registered tool',
+  'Full registered tool catalog advertisement contract'
+);
 
 for (const heading of [
   '# AgentK Contracts',
@@ -90,16 +125,7 @@ for (const method of controlPlaneContract.rpcMethods) {
   expectIncludes(method.startsWith('config/') ? lifecycle : router, method, 'JSON-RPC router implementation');
 }
 
-for (const [source, toolName] of [
-  [listResources, 'list_resources'],
-  [getResource, 'get_resource'],
-  [getResourceLogs, 'get_resource_logs'],
-  [restartWorkload, 'restart_workload'],
-  [scaleWorkload, 'scale_workload'],
-  [patchWorkload, 'patch_workload'],
-  [patchResource, 'patch_resource'],
-  [patchConfigMap, 'patch_configmap']
-]) {
+for (const [source, toolName] of builtinToolContracts) {
   expectIncludes(doc, toolName, 'Builtin tool doc');
   expectIncludes(source, `name: '${toolName}'`, 'Builtin tool implementation');
 }
