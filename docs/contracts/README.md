@@ -103,6 +103,14 @@ Current control-plane-expected builtin tool names:
 - `patch_workload`
 - `patch_resource`
 - `patch_configmap`
+- `get_custom_resource`
+- `list_custom_resources`
+- `watch_custom_resources`
+- `create_custom_resource`
+- `patch_custom_resource`
+- `delete_custom_resource`
+
+The custom-resource tools are available only for exact definitions snapshotted into `rbac.additions` during cluster onboarding. Profiles support `get`, `list`, `watch`, `create`, `patch`, and `delete`; read-only access renders only configured read verbs, while writes remain dry-run first and subject to the ordinary write-approval path.
 
 For `list_resources`, omitting `namespace` means all namespaces allowed by the
 effective AgentK scope. Callers must not pass synthetic namespace values such as

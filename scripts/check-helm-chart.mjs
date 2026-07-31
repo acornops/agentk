@@ -217,6 +217,27 @@ assertExcludes(writeEnabled, 'resources: ["services"]\n    verbs: ["patch"]', 'd
 assertExcludes(writeEnabled, 'resources: ["ingresses"]\n    verbs: ["patch"]', 'default write RBAC should not patch Ingresses');
 assertExcludes(writeEnabled, 'resources: ["configmaps"]\n    verbs: ["patch"]', 'default write RBAC should not patch ConfigMaps');
 
+const cnpgAddition = JSON.stringify([{
+  key: 'cnpg', name: 'CNPG', description: 'CloudNativePG clusters',
+  resources: [{
+    apiGroup: 'postgresql.cnpg.io', apiVersion: 'v1', resource: 'clusters', kind: 'Cluster',
+    scope: 'namespaced', verbs: ['get', 'list', 'watch', 'create', 'patch', 'delete']
+  }]
+}]);
+const readOnlyCnpg = helmTemplate([...baseArgs, '--set-json', `rbac.additions=${cnpgAddition}`]);
+assertIncludes(readOnlyCnpg, 'resources: ["clusters"]\n    verbs: ["get","list","watch"]', 'read-only additions should grant configured read verbs');
+assertMatch(readOnlyCnpg, /name: ACORNOPS_AGENT_RBAC_ADDITIONS_JSON\s+value: "\[/, 'deployment should receive the immutable addition snapshot');
+const readWriteCnpg = helmTemplate([...baseArgs, '--set-json', `rbac.additions=${cnpgAddition}`, '--set', 'rbac.write.enabled=true']);
+assertIncludes(readWriteCnpg, 'resources: ["clusters"]\n    verbs: ["get","list","watch","create","patch","delete"]', 'read-write additions should grant every configured custom-resource verb');
+expectFailure(
+  [...baseArgs, '--set-json', `rbac.additions=${JSON.stringify([{
+    key: 'cluster-wide', name: 'Cluster wide', resources: [{
+      apiGroup: 'example.io', apiVersion: 'v1', resource: 'globals', kind: 'Global', scope: 'cluster', verbs: ['list']
+    }]
+  }])}`, '--set-string', 'rbac.scope=namespace'],
+  'is cluster-scoped and cannot be used with rbac.scope=namespace'
+);
+
 const expandedPatchKinds = helmTemplate([
   ...baseArgs,
   '--set',

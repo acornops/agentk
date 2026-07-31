@@ -123,6 +123,28 @@ describe('config', () => {
     expect(config.ACORNOPS_AGENT_WATCH_TIMEOUT_SECONDS).toBe(60);
   });
 
+  it('rejects ambiguous resource plurals within one RBAC addition', async () => {
+    const resource = {
+      apiGroup: 'postgresql.cnpg.io', apiVersion: 'v1', resource: 'clusters', kind: 'Cluster',
+      scope: 'namespaced', verbs: ['list']
+    };
+    setBaseEnv({
+      ACORNOPS_AGENT_RBAC_ADDITIONS_JSON: JSON.stringify([{
+        key: 'cnpg', name: 'CNPG', resources: [resource, { ...resource, apiGroup: 'backups.example.io', kind: 'BackupCluster' }]
+      }])
+    });
+    vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit:1'); }) as never);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(importConfigModule()).rejects.toThrow('process.exit:1');
+    expect(errorSpy).toHaveBeenCalledWith(
+      '❌ Invalid configuration:',
+      expect.objectContaining({
+        ACORNOPS_AGENT_RBAC_ADDITIONS_JSON: expect.arrayContaining([expect.stringContaining('resource plurals must be unique')])
+      })
+    );
+  });
+
   it('rejects out-of-range Kubernetes API collection settings', async () => {
     setBaseEnv({
       ACORNOPS_AGENT_K8S_CONCURRENCY: '0',
