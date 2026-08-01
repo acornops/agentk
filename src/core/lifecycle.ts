@@ -156,8 +156,6 @@ export class LifecycleManager {
       targetType: KUBERNETES_TARGET_TYPE,
       agentType: 'agentk',
       agentKey: config.ACORNOPS_AGENT_KEY,
-      version: config.AGENT_VERSION,
-      agentVersion: config.AGENT_VERSION,
       supportedCapabilities: config.ACORNOPS_AGENT_WRITE_ENABLED ? ['read', 'write'] : ['read'],
       advertisedTools: toolRegistry.getAll().map((tool) => ({
         name: tool.name,

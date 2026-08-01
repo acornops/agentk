@@ -13,7 +13,7 @@ const logger = pino({
 
 logger.info(
   {
-    version: config.AGENT_VERSION,
+    connectorVersion: config.CONNECTOR_VERSION,
     leaderElectionEnabled: config.ACORNOPS_AGENT_LEADER_ELECTION_ENABLED,
     podName: config.ACORNOPS_AGENT_POD_NAME || undefined,
     podUid: config.ACORNOPS_AGENT_POD_UID || undefined,

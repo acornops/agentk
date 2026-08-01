@@ -4,12 +4,11 @@
   "runtimeDependencies": ["control-plane"],
   "counterparts": {
     "control-plane": {
-      "agentHeaders": ["x-agent-key", "x-agent-version"],
+      "agentHeaders": ["x-agent-key", "x-connector-version"],
+      "connectorVersionHeader": "agentk/<CONNECTOR_VERSION>; required, validated against agentType, and persisted as last_connector_version",
       "agentTypeValues": ["agentk"],
       "handshakeRequestFields": [
         "agentKey",
-        "version",
-        "agentVersion",
         "targetId",
         "targetType",
         "agentType",

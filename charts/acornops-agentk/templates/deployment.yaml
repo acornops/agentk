@@ -153,7 +153,7 @@ spec:
             {{- end }}
             - name: ACORNOPS_AGENT_EXCLUDE_NAMESPACES
               value: {{ join "," .Values.namespaceScope.exclude | quote }}
-            - name: AGENT_VERSION
+            - name: CONNECTOR_VERSION
               value: {{ .Chart.AppVersion | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

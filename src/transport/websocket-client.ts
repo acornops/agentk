@@ -39,7 +39,7 @@ export class WebSocketClient extends EventEmitter {
       maxPayload: config.ACORNOPS_AGENT_TOOL_MAX_INPUT_BYTES,
       headers: {
         'x-agent-key': config.ACORNOPS_AGENT_KEY,
-        'x-agent-version': config.AGENT_VERSION,
+        'x-connector-version': `agentk/${config.CONNECTOR_VERSION}`,
       },
     });
     this.ws = socket;

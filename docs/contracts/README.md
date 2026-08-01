@@ -46,15 +46,13 @@ Accepted control-plane paths:
 Agent headers:
 
 - `x-agent-key`
-- `x-agent-version`
+- `x-connector-version: agentk/<CONNECTOR_VERSION>`
 
 Handshake request:
 
 - JSON-RPC method `lifecycle/handshake`
 - params:
   - `agentKey`
-  - `version`
-  - `agentVersion`
   - `targetId`
   - `targetType`
   - `agentType`

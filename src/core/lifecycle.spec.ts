@@ -99,7 +99,7 @@ vi.mock('../config.js', () => ({
     ACORNOPS_CLUSTER_ID: 'cluster-1',
     TARGET_ID: 'cluster-1',
     ACORNOPS_AGENT_KEY: 'agent-key',
-    AGENT_VERSION: '1.2.3',
+    CONNECTOR_VERSION: '1.2.3',
     ACORNOPS_AGENT_WRITE_ENABLED: true,
     ACORNOPS_AGENT_WATCH_NAMESPACES: ['team-a'],
     ACORNOPS_AGENT_HANDSHAKE_PROBE_TIMEOUT_MS: 5000,
@@ -164,8 +164,6 @@ describe('LifecycleManager', () => {
         targetType: 'kubernetes',
         agentType: 'agentk',
         agentKey: 'agent-key',
-        version: '1.2.3',
-        agentVersion: '1.2.3',
         supportedCapabilities: ['read', 'write'],
         advertisedTools: expect.arrayContaining([
           { name: 'list_resources', capability: 'read' },
