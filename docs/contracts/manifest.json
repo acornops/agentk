@@ -37,8 +37,21 @@
         "scale_workload",
         "patch_workload",
         "patch_resource",
-        "patch_configmap"
+        "patch_configmap",
+        "get_custom_resource",
+        "list_custom_resources",
+        "watch_custom_resources",
+        "create_custom_resource",
+        "patch_custom_resource",
+        "delete_custom_resource"
       ],
+      "kubernetesRbacAdditions": {
+        "installValue": "rbac.additions[]",
+        "runtimeEnvironment": "ACORNOPS_AGENT_RBAC_ADDITIONS_JSON",
+        "verbs": ["get", "list", "watch", "create", "patch", "delete"],
+        "accessMode": "read-only grants configured get, list, and watch; read-write additionally grants configured create, patch, and delete",
+        "patchBoundary": "JSON Patch add/replace/remove operations under /spec only, with UID and resourceVersion tests, Kubernetes dry-run, ordinary write approval, and post-write identity verification"
+      },
       "toolAdvertisementPolicy": "Every registered AgentK tool is advertised and discoverable; session, run, local write, patch-kind, environment, ConfigMap, namespace, and Kubernetes RBAC policy remain fail-closed execution ceilings.",
       "snapshotFields": [
         "metrics.available",

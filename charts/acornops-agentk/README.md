@@ -174,6 +174,12 @@ helm upgrade --install acornops-agent oci://ghcr.io/acornops/charts/acornops-age
 
 When `rbac.scope=namespace`, the chart creates Roles in `rbac.namespaces` when set, otherwise in `namespaceScope.include`, otherwise in the release namespace.
 
+### Custom-resource additions
+
+The control plane may include immutable `rbac.additions` in a generated onboarding command. Each named addition contains an exact API group, version, plural resource, kind, scope, and configured `get`, `list`, `watch`, `create`, `patch`, or `delete` verbs. Operators should not edit this value when using a generated command.
+
+Read-only installs render configured `get`, `list`, and `watch` verbs. Read-write installs also render configured `create`, `patch`, and `delete` verbs. AgentK exposes matching generic custom-resource tools; writes use Kubernetes dry-run and remain subject to normal write approval. Namespace-scoped installs reject cluster-scoped additions.
+
 ## Active-Passive HA
 
 The agent supports active-passive HA with Kubernetes Lease leader election. It does not support active-active operation. When `replicaCount > 1`, `leaderElection.enabled` must be `true`; passive replicas stay warm but do not connect, send snapshots, emit heartbeats, or serve tool calls.

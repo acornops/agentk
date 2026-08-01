@@ -107,6 +107,8 @@ spec:
               value: {{ .Values.patchPolicy.allowServiceSelectorChanges | quote }}
             - name: ACORNOPS_AGENT_RBAC_SCOPE
               value: {{ .Values.rbac.scope | quote }}
+            - name: ACORNOPS_AGENT_RBAC_ADDITIONS_JSON
+              value: {{ toJson .Values.rbac.additions | quote }}
             - name: ACORNOPS_AGENT_WATCH_CACHE_ENABLED
               value: {{ .Values.config.watchCacheEnabled | quote }}
             - name: ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS

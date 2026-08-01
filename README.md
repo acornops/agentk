@@ -87,6 +87,7 @@ The agent is configured via environment variables:
 | `ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH` | Operator opt-in for non-secret ConfigMap data changes | `false` |
 | `ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH` | Operator opt-in required before caller-confirmed Service selector changes | `false` |
 | `ACORNOPS_AGENT_RBAC_SCOPE` | Local RBAC boundary (`cluster` or `namespace`) | `cluster` |
+| `ACORNOPS_AGENT_RBAC_ADDITIONS_JSON` | Immutable, control-plane-generated custom-resource additions selected during onboarding | `[]` |
 | `ACORNOPS_AGENT_WATCH_CACHE_ENABLED` | Build snapshots from a Kubernetes watch-backed local cache when ready | `true` |
 | `ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS` | Debounce window for snapshots triggered by watched resource or Warning event changes | `5000` |
 | `ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS` | Time to wait for watch cache warmup before using list fallback | `15000` |

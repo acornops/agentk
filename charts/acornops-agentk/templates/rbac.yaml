@@ -60,6 +60,21 @@ rules:
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods", "nodes"]
     verbs: ["get", "list"]
+  {{- range $addition := .Values.rbac.additions }}
+  {{- range $resource := $addition.resources }}
+  {{- $verbs := list }}
+  {{- range $verb := $resource.verbs }}
+  {{- if or (has $verb (list "get" "list" "watch")) (and (has $verb (list "create" "patch" "delete")) $.Values.rbac.write.enabled) }}
+  {{- $verbs = append $verbs $verb }}
+  {{- end }}
+  {{- end }}
+  {{- if $verbs }}
+  - apiGroups: [{{ $resource.apiGroup | quote }}]
+    resources: [{{ $resource.resource | quote }}]
+    verbs: {{ toJson $verbs }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
   {{- if .Values.rbac.write.enabled }}
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]
@@ -137,6 +152,24 @@ rules:
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]
     verbs: ["get", "list"]
+  {{- range $addition := $root.Values.rbac.additions }}
+  {{- range $resource := $addition.resources }}
+  {{- if eq $resource.scope "cluster" }}
+  {{- fail (printf "RBAC addition %s resource %s is cluster-scoped and cannot be used with rbac.scope=namespace" $addition.key $resource.resource) }}
+  {{- end }}
+  {{- $verbs := list }}
+  {{- range $verb := $resource.verbs }}
+  {{- if or (has $verb (list "get" "list" "watch")) (and (has $verb (list "create" "patch" "delete")) $root.Values.rbac.write.enabled) }}
+  {{- $verbs = append $verbs $verb }}
+  {{- end }}
+  {{- end }}
+  {{- if $verbs }}
+  - apiGroups: [{{ $resource.apiGroup | quote }}]
+    resources: [{{ $resource.resource | quote }}]
+    verbs: {{ toJson $verbs }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
   {{- if $root.Values.rbac.write.enabled }}
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]

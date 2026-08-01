@@ -7,6 +7,60 @@ export type SupportedWorkloadPatchKind = typeof SUPPORTED_WORKLOAD_PATCH_KINDS[n
 const DEFAULT_WORKLOAD_PATCH_KINDS: SupportedWorkloadPatchKind[] = ['Deployment', 'StatefulSet', 'DaemonSet'];
 export const SUPPORTED_RESOURCE_PATCH_KINDS = ['Service', 'Ingress'] as const;
 export type SupportedResourcePatchKind = typeof SUPPORTED_RESOURCE_PATCH_KINDS[number];
+export const KUBERNETES_RBAC_ADDITION_VERBS = ['get', 'list', 'watch', 'create', 'patch', 'delete'] as const;
+export type KubernetesRbacAdditionVerb = typeof KUBERNETES_RBAC_ADDITION_VERBS[number];
+
+const kubernetesRbacAdditionResourceSchema = z.object({
+  apiGroup: z.string().trim().min(1).max(253)
+    .regex(/^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$/, 'Invalid Kubernetes API group'),
+  apiVersion: z.string().trim().min(1).max(63)
+    .regex(/^[a-z0-9][a-z0-9.-]*$/, 'Invalid Kubernetes API version'),
+  resource: z.string().trim().min(1).max(253)
+    .regex(/^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$/, 'Invalid Kubernetes resource plural'),
+  kind: z.string().trim().min(1).max(128)
+    .regex(/^[A-Z][A-Za-z0-9]*$/, 'Invalid Kubernetes resource kind'),
+  scope: z.enum(['namespaced', 'cluster']),
+  verbs: z.array(z.enum(KUBERNETES_RBAC_ADDITION_VERBS)).min(1).max(KUBERNETES_RBAC_ADDITION_VERBS.length)
+    .refine((verbs) => new Set(verbs).size === verbs.length, 'RBAC verbs must not contain duplicates')
+    .refine((verbs) => !verbs.includes('patch') || verbs.includes('list'), 'patch requires list so the agent can establish resource identity')
+}).strict();
+
+export const kubernetesRbacAdditionSchema = z.object({
+  key: z.string().trim().min(1).max(64)
+    .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, 'Invalid RBAC addition key'),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(240).optional().default(''),
+  resources: z.array(kubernetesRbacAdditionResourceSchema).min(1).max(50)
+    .refine(
+      (resources) => new Set(resources.map((resource) => resource.resource)).size === resources.length,
+      'Kubernetes resource plurals must be unique within an RBAC addition'
+    )
+}).strict();
+
+export type KubernetesRbacAddition = z.infer<typeof kubernetesRbacAdditionSchema>;
+
+/** Parse the control-plane-owned custom-resource addition snapshot. */
+function parseKubernetesRbacAdditions(value: string, ctx: z.RefinementCtx): KubernetesRbacAddition[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'ACORNOPS_AGENT_RBAC_ADDITIONS_JSON must be valid JSON' });
+    return [];
+  }
+  const result = z.array(kubernetesRbacAdditionSchema).max(25).safeParse(parsed);
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Invalid RBAC addition: ${issue.message}` });
+    }
+    return [];
+  }
+  if (new Set(result.data.map((addition) => addition.key)).size !== result.data.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'RBAC addition keys must not contain duplicates' });
+    return [];
+  }
+  return result.data;
+}
 
 /** Parse and validate a comma-separated Kubernetes namespace environment value. */
 function parseNamespaceList(value: string | undefined, ctx: z.RefinementCtx): string[] {
@@ -72,6 +126,7 @@ const configSchema = z.object({
   ACORNOPS_AGENT_ALLOW_CONFIGMAP_PATCH: z.string().optional().default('false').transform(val => val === 'true'),
   ACORNOPS_AGENT_ALLOW_SERVICE_SELECTOR_PATCH: z.string().optional().default('false').transform(val => val === 'true'),
   ACORNOPS_AGENT_RBAC_SCOPE: z.enum(['cluster', 'namespace']).default('cluster'),
+  ACORNOPS_AGENT_RBAC_ADDITIONS_JSON: z.string().optional().default('[]').transform(parseKubernetesRbacAdditions),
   ACORNOPS_AGENT_WATCH_CACHE_ENABLED: z.string().optional().default('true').transform(val => val === 'true'),
   ACORNOPS_AGENT_WATCH_SNAPSHOT_DEBOUNCE_MS: z.coerce.number().int().min(0).max(60000).default(5000),
   ACORNOPS_AGENT_WATCH_CACHE_SYNC_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(15000),

@@ -122,6 +122,10 @@ rbac:
   # Namespaces in which to create Roles when scope=namespace. Falls back to
   # namespaceScope.include, then the release namespace, when empty.
   namespaces: []
+  # Control-plane-owned, immutable-at-install custom-resource permission bundles.
+  # Each resource must declare apiGroup, apiVersion, resource, kind, scope, and
+  # explicit verbs. Do not set this directly when using generated install commands.
+  additions: []
   write:
     # Enable write/mutation tools (e.g. restart workload). When false the agent
     # advertises read-only capabilities and the chart grants no mutation verbs.
