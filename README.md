@@ -457,11 +457,11 @@ Run the checks that match the change:
 
 ## Tools Available
 
-- `list_resources`: List bounded Kubernetes resource summaries.
-- `get_resource`: Fetch a redacted Kubernetes object by name.
+- `list_resources`: List bounded built-in or administrator-approved custom-resource summaries.
+- `get_resource`: Fetch a redacted built-in or administrator-approved custom resource by name.
 - `get_resource_logs`: Read bounded Pod logs (max 1 MiB).
 - `restart_workload`: Guarded rolling restart for Deployments, StatefulSets, and DaemonSets.
 - `scale_workload`: Guarded scaling for Deployments and StatefulSets.
 - `patch_workload`: Apply guarded workload image, single-line non-secret environment, label, or annotation changes.
-- `patch_resource`: Apply guarded Service or Ingress metadata and explicitly enabled Service selector changes.
+- `patch_resource`: Apply guarded Service or Ingress changes, or `/spec` changes to administrator-approved custom resources.
 - `patch_configmap`: Set or remove bounded single-line non-secret ConfigMap data keys without restarting consumers.

@@ -22,6 +22,11 @@ import {
   operationAnnotationsMatch,
 } from '../utils.js';
 import { WriteReceipt } from '../write-receipt.js';
+import {
+  patchCustomResourceHandler,
+  patchCustomResourceSchema,
+  type CustomResourcePatchReceipt
+} from './patch-custom-resource.js';
 
 const setLabelSchema = z.object({
   type: z.literal('set_label'),
@@ -93,7 +98,7 @@ function isProtectedAnnotationKey(key: string): boolean {
   return isProtectedMetadataKey(key) || key === 'kubectl.kubernetes.io/restartedAt';
 }
 
-export const patchResourceSchema = z.object({
+const builtInPatchResourceSchema = z.object({
   kind: z.enum(SUPPORTED_RESOURCE_PATCH_KINDS),
   namespace: namespaceSchema,
   name: kubernetesNameSchema,
@@ -154,6 +159,9 @@ export const patchResourceSchema = z.object({
   }
 });
 
+export const patchResourceSchema = z.union([builtInPatchResourceSchema, patchCustomResourceSchema]);
+type BuiltInPatchResourceRequest = z.infer<typeof builtInPatchResourceSchema>;
+
 export type PatchResourceRequest = z.infer<typeof patchResourceSchema>;
 
 /** Read the current scalar value addressed by a resource patch operation. */
@@ -166,7 +174,7 @@ function currentValue(resource: any, change: ResourcePatchChange): string | unde
 }
 
 /** Return whether all requested resource changes are visible. */
-function desiredStateMatches(resource: any, request: PatchResourceRequest): boolean {
+function desiredStateMatches(resource: any, request: BuiltInPatchResourceRequest): boolean {
   return request.changes.every((change) => {
     const actual = currentValue(resource, change);
     return change.type === 'set_label' || change.type === 'set_annotation' || change.type === 'set_service_selector'
@@ -176,7 +184,7 @@ function desiredStateMatches(resource: any, request: PatchResourceRequest): bool
 }
 
 /** Return whether Service routing invariants remain valid. */
-function invariantsMatch(resource: any, request: PatchResourceRequest): boolean {
+function invariantsMatch(resource: any, request: BuiltInPatchResourceRequest): boolean {
   const selectorChanged = request.changes.some((change) =>
     change.type === 'set_service_selector' || change.type === 'remove_service_selector');
   return !selectorChanged ||
@@ -189,7 +197,7 @@ function canonicalChanges(changes: ResourcePatchChange[]): ResourcePatchChange[]
 }
 
 /** Compile Service or Ingress semantic operations into one guarded JSON Patch. */
-function compilePatch(current: any, request: PatchResourceRequest, operationId: string, operationHash: string) {
+function compilePatch(current: any, request: BuiltInPatchResourceRequest, operationId: string, operationHash: string) {
   if (!current.metadata?.uid || !current.metadata?.resourceVersion) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Resource identity is incomplete');
   }
@@ -266,7 +274,7 @@ interface ResourcePatchSummary {
 }
 
 /** Build a metadata-value-free Service or Ingress mutation receipt. */
-function buildReceipt(request: PatchResourceRequest, resource: any, operationId: string, compiled: ResourcePatchSummary): WriteReceipt {
+function buildReceipt(request: BuiltInPatchResourceRequest, resource: any, operationId: string, compiled: ResourcePatchSummary): WriteReceipt {
   return {
     success: true,
     operationId,
@@ -289,63 +297,72 @@ function buildReceipt(request: PatchResourceRequest, resource: any, operationId:
 }
 
 /** Apply a guarded Service or Ingress semantic patch. */
-export async function patchResourceHandler(request: PatchResourceRequest, context?: ToolExecutionContext): Promise<WriteReceipt> {
+export async function patchResourceHandler(
+  request: PatchResourceRequest,
+  context?: ToolExecutionContext
+): Promise<WriteReceipt | CustomResourcePatchReceipt> {
+  if ('addition_key' in request) {
+    return patchCustomResourceHandler(request, context);
+  }
+  const builtInRequest = request as BuiltInPatchResourceRequest;
   checkWriteEnabled();
-  checkNamespaceAllowed(request.namespace);
+  checkNamespaceAllowed(builtInRequest.namespace);
   const operationId = context?.operationId || `direct-${Date.now()}`;
-  const normalized = { ...request, changes: canonicalChanges(request.changes) };
+  const normalized = { ...builtInRequest, changes: canonicalChanges(builtInRequest.changes) };
   const operationHash = createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
-  const current = await readResource(request.kind, request.name, request.namespace);
+  const current = await readResource(builtInRequest.kind, builtInRequest.name, builtInRequest.namespace);
   checkOperationNotAborted(context, operationId);
-  if (current.metadata?.uid !== request.expected_uid) {
+  if (current.metadata?.uid !== builtInRequest.expected_uid) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Resource UID does not match the expected target');
   }
   if (current.metadata?.annotations?.['acornops.dev/operation-id'] === operationId) {
     if (!operationAnnotationsMatch(current.metadata?.annotations, operationId, operationHash, 'patch') ||
-        !desiredStateMatches(current, request) || !invariantsMatch(current, request)) {
+        !desiredStateMatches(current, builtInRequest) || !invariantsMatch(current, builtInRequest)) {
       throw new ToolExecutionError('PRECONDITION_FAILED', 'Operation ID was already used with different patch arguments or state');
     }
-    return buildReceipt(request, current, operationId, {
+    return buildReceipt(builtInRequest, current, operationId, {
       changes: normalized.changes,
       serviceRoutingChanged: normalized.changes.some((change) =>
         change.type === 'set_service_selector' || change.type === 'remove_service_selector'),
     });
   }
-  if (current.metadata?.resourceVersion !== request.expected_resource_version) {
+  if (current.metadata?.resourceVersion !== builtInRequest.expected_resource_version) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Resource version does not match the inspected resource');
   }
   const compiled = compilePatch(current, normalized, operationId, operationHash);
-  const dryRunResult = await applyPatch(request.kind, request.name, request.namespace, compiled.body, 'All');
+  const dryRunResult = await applyPatch(builtInRequest.kind, builtInRequest.name, builtInRequest.namespace, compiled.body, 'All');
   checkOperationNotAborted(context, operationId);
-  if (dryRunResult.metadata?.uid !== request.expected_uid || !desiredStateMatches(dryRunResult, request) ||
+  if (dryRunResult.metadata?.uid !== builtInRequest.expected_uid || !desiredStateMatches(dryRunResult, builtInRequest) ||
       !operationAnnotationsMatch(dryRunResult.metadata?.annotations, operationId, operationHash, 'patch') ||
-      !invariantsMatch(dryRunResult, request)) {
+      !invariantsMatch(dryRunResult, builtInRequest)) {
     throw new ToolExecutionError('PRECONDITION_FAILED', 'Kubernetes dry-run returned an inconsistent patched resource');
   }
-  const updated = await applyPatch(request.kind, request.name, request.namespace, compiled.body);
-  if (updated.metadata?.uid !== request.expected_uid || !updated.metadata?.resourceVersion ||
-      updated.metadata.resourceVersion === current.metadata.resourceVersion || !desiredStateMatches(updated, request) ||
+  const updated = await applyPatch(builtInRequest.kind, builtInRequest.name, builtInRequest.namespace, compiled.body);
+  if (updated.metadata?.uid !== builtInRequest.expected_uid || !updated.metadata?.resourceVersion ||
+      updated.metadata.resourceVersion === current.metadata.resourceVersion || !desiredStateMatches(updated, builtInRequest) ||
       !operationAnnotationsMatch(updated.metadata?.annotations, operationId, operationHash, 'patch') ||
-      !invariantsMatch(updated, request)) {
+      !invariantsMatch(updated, builtInRequest)) {
     throw new ToolExecutionError(
       'KUBERNETES_ERROR',
       'Kubernetes accepted the patch but returned an inconsistent resource',
       { outcome: 'unknown', operationId, reason: 'PostWriteVerificationFailed', phase: 'verification' },
     );
   }
-  return buildReceipt(request, updated, operationId, compiled);
+  return buildReceipt(builtInRequest, updated, operationId, compiled);
 }
 
 export const patchResourceTool: ToolDefinition = {
   name: 'patch_resource',
-  description: 'Patch an exact Service or Ingress after get_resource. Supports guarded resource metadata changes and explicitly enabled Service selector changes.',
+  description: 'Patch an exact Kubernetes resource after get_resource. Supports guarded Service or Ingress metadata changes, explicitly enabled Service selector changes, and administrator-approved custom-resource /spec changes.',
   capability: 'write',
   timeoutMs: 20000,
-  version: 'v2',
+  version: 'v3',
   outputSchema: WRITE_TOOL_RESULT_OUTPUT_SCHEMA,
   artifactPolicy: 'never',
   schema: patchResourceSchema,
-  scopeResolver: (params) => ({ type: 'namespaced', namespace: params.namespace }),
+  scopeResolver: (params) => 'addition_key' in params && !params.namespace
+    ? { type: 'cluster', kind: params.resource }
+    : { type: 'namespaced', namespace: params.namespace },
   handler: patchResourceHandler,
   projectForModel: (result) => writeProjection('patch_resource', result),
 };

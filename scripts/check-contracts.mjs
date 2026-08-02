@@ -34,9 +34,6 @@ const scaleWorkload = read('src/tools/atomic/scale.ts');
 const patchWorkload = read('src/tools/atomic/patch-workload.ts');
 const patchResource = read('src/tools/atomic/patch-resource.ts');
 const patchConfigMap = read('src/tools/atomic/patch-configmap.ts');
-const listCustomResources = read('src/tools/atomic/list-custom-resources.ts');
-const patchCustomResource = read('src/tools/atomic/patch-custom-resource.ts');
-const customResourceOperations = read('src/tools/atomic/custom-resource-operations.ts');
 const toolIndex = read('src/tools/index.ts');
 const manualDeployment = read('deploy/deployment.yaml');
 const manualRbac = read('deploy/rbac.yaml');
@@ -51,12 +48,6 @@ const builtinToolContracts = [
   [patchWorkload, 'patch_workload', 'patchWorkloadTool'],
   [patchResource, 'patch_resource', 'patchResourceTool'],
   [patchConfigMap, 'patch_configmap', 'patchConfigMapTool'],
-  [customResourceOperations, 'get_custom_resource', 'getCustomResourceTool'],
-  [listCustomResources, 'list_custom_resources', 'listCustomResourcesTool'],
-  [customResourceOperations, 'watch_custom_resources', 'watchCustomResourcesTool'],
-  [customResourceOperations, 'create_custom_resource', 'createCustomResourceTool'],
-  [patchCustomResource, 'patch_custom_resource', 'patchCustomResourceTool'],
-  [customResourceOperations, 'delete_custom_resource', 'deleteCustomResourceTool']
 ];
 const expectedBuiltinToolNames = builtinToolContracts.map(([, toolName]) => toolName);
 const expectedRegisteredToolDefinitions = builtinToolContracts.map(([, , definition]) => definition);

@@ -176,9 +176,9 @@ When `rbac.scope=namespace`, the chart creates Roles in `rbac.namespaces` when s
 
 ### Custom-resource additions
 
-The control plane may include immutable `rbac.additions` in a generated onboarding command. Each named addition contains an exact API group, version, plural resource, kind, scope, and configured `get`, `list`, `watch`, `create`, `patch`, or `delete` verbs. Operators should not edit this value when using a generated command.
+The control plane may include immutable `rbac.additions` in a generated onboarding command. Each named addition contains an exact API group, version, plural resource, kind, scope, and configured verbs. Operators should not edit this value when using a generated command.
 
-Read-only installs render configured `get`, `list`, and `watch` verbs. Read-write installs also render configured `create`, `patch`, and `delete` verbs. AgentK exposes matching generic custom-resource tools; writes use Kubernetes dry-run and remain subject to normal write approval. Namespace-scoped installs reject cluster-scoped additions.
+Read-only installs render configured `get` and `list` verbs. Read-write installs also render configured `patch` verbs. Historical snapshots containing `watch`, `create`, or `delete` remain parseable but those permissions are not rendered. AgentK exposes custom resources through `get_resource`, `list_resources`, and `patch_resource`; patches use Kubernetes dry-run and remain subject to normal write approval. Namespace-scoped installs reject cluster-scoped additions.
 
 ## Active-Passive HA
 

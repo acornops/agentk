@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, WebSocket } from 'ws';
 import { gunzipSync } from 'zlib';
 
@@ -55,6 +55,7 @@ describe('E2E Agent Lifecycle', () => {
     messages.length = 0;
     servers.length = 0;
     managers.length = 0;
+    vi.restoreAllMocks();
   });
 
   it('performs handshake, sends snapshots, serves tools, and reconnects', async () => {
@@ -73,7 +74,20 @@ describe('E2E Agent Lifecycle', () => {
     process.env.ACORNOPS_AGENT_KUBECONFIG_SKIP_TLS_VERIFY = 'true';
     process.env.ACORNOPS_AGENT_LOG_LEVEL = process.env.ACORNOPS_AGENT_LOG_LEVEL || 'warn';
 
-    const { LifecycleManager } = await import('./core/lifecycle.js');
+    const [
+      { LifecycleManager },
+      { ResourceCollector },
+      { MetricsCollector },
+      { EventCollector },
+    ] = await Promise.all([
+      import('./core/lifecycle.js'),
+      import('./core/collectors/resource-collector.js'),
+      import('./core/collectors/metrics-collector.js'),
+      import('./core/collectors/event-collector.js'),
+    ]);
+    vi.spyOn(ResourceCollector.prototype, 'collect').mockResolvedValue({ pods: [] });
+    vi.spyOn(MetricsCollector.prototype, 'collect').mockResolvedValue({ available: false, pods: [], nodes: [] });
+    vi.spyOn(EventCollector.prototype, 'collect').mockResolvedValue([]);
 
     server.on('connection', (socket) => {
       sockets.push(socket);

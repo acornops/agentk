@@ -59,8 +59,8 @@ describe('listResourcesTool', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.flatten().fieldErrors.namespace).toContain(
-        'omit namespace to query all allowed namespaces; do not pass the literal value "all"'
+      expect(JSON.stringify(result.error)).toContain(
+        'omit namespace to query all allowed namespaces'
       );
     }
   });

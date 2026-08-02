@@ -7,6 +7,8 @@ export type SupportedWorkloadPatchKind = typeof SUPPORTED_WORKLOAD_PATCH_KINDS[n
 const DEFAULT_WORKLOAD_PATCH_KINDS: SupportedWorkloadPatchKind[] = ['Deployment', 'StatefulSet', 'DaemonSet'];
 export const SUPPORTED_RESOURCE_PATCH_KINDS = ['Service', 'Ingress'] as const;
 export type SupportedResourcePatchKind = typeof SUPPORTED_RESOURCE_PATCH_KINDS[number];
+// Historical snapshots may contain verbs for removed tools. Keep them parseable;
+// Helm renders only get, list, and patch permissions.
 export const KUBERNETES_RBAC_ADDITION_VERBS = ['get', 'list', 'watch', 'create', 'patch', 'delete'] as const;
 export type KubernetesRbacAdditionVerb = typeof KUBERNETES_RBAC_ADDITION_VERBS[number];
 

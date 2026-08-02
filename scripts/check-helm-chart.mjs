@@ -225,10 +225,11 @@ const cnpgAddition = JSON.stringify([{
   }]
 }]);
 const readOnlyCnpg = helmTemplate([...baseArgs, '--set-json', `rbac.additions=${cnpgAddition}`]);
-assertIncludes(readOnlyCnpg, 'resources: ["clusters"]\n    verbs: ["get","list","watch"]', 'read-only additions should grant configured read verbs');
+assertIncludes(readOnlyCnpg, 'resources: ["clusters"]\n    verbs: ["get","list"]', 'read-only additions should grant configured read verbs');
 assertMatch(readOnlyCnpg, /name: ACORNOPS_AGENT_RBAC_ADDITIONS_JSON\s+value: "\[/, 'deployment should receive the immutable addition snapshot');
 const readWriteCnpg = helmTemplate([...baseArgs, '--set-json', `rbac.additions=${cnpgAddition}`, '--set', 'rbac.write.enabled=true']);
-assertIncludes(readWriteCnpg, 'resources: ["clusters"]\n    verbs: ["get","list","watch","create","patch","delete"]', 'read-write additions should grant every configured custom-resource verb');
+assertIncludes(readWriteCnpg, 'resources: ["clusters"]\n    verbs: ["get","list","patch"]', 'read-write additions should grant configured custom-resource patch access');
+assertExcludes(readWriteCnpg, 'verbs: ["get","list","watch","create","patch","delete"]', 'removed custom-resource tools must not retain RBAC');
 expectFailure(
   [...baseArgs, '--set-json', `rbac.additions=${JSON.stringify([{
     key: 'cluster-wide', name: 'Cluster wide', resources: [{

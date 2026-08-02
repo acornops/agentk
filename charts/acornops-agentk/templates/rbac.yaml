@@ -64,7 +64,7 @@ rules:
   {{- range $resource := $addition.resources }}
   {{- $verbs := list }}
   {{- range $verb := $resource.verbs }}
-  {{- if or (has $verb (list "get" "list" "watch")) (and (has $verb (list "create" "patch" "delete")) $.Values.rbac.write.enabled) }}
+  {{- if or (has $verb (list "get" "list")) (and (eq $verb "patch") $.Values.rbac.write.enabled) }}
   {{- $verbs = append $verbs $verb }}
   {{- end }}
   {{- end }}
@@ -159,7 +159,7 @@ rules:
   {{- end }}
   {{- $verbs := list }}
   {{- range $verb := $resource.verbs }}
-  {{- if or (has $verb (list "get" "list" "watch")) (and (has $verb (list "create" "patch" "delete")) $root.Values.rbac.write.enabled) }}
+  {{- if or (has $verb (list "get" "list")) (and (eq $verb "patch") $root.Values.rbac.write.enabled) }}
   {{- $verbs = append $verbs $verb }}
   {{- end }}
   {{- end }}

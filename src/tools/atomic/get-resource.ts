@@ -6,6 +6,8 @@ import { ToolDefinition } from '../registry.js';
 import { checkNamespaceAllowed } from '../utils.js';
 import { kubernetesNameSchema, namespaceSchema } from '../schemas.js';
 import { boundedText, fullToolResultOutputSchema, identity } from '../model-context.js';
+import { requireCustomResourceAddition } from '../custom-resource-additions.js';
+import { ToolExecutionError } from '../errors.js';
 
 const OUTPUT_SCHEMA = fullToolResultOutputSchema({
   type: 'object', required: ['resource'],
@@ -17,7 +19,7 @@ const OUTPUT_SCHEMA = fullToolResultOutputSchema({
   additionalProperties: false,
 });
 
-const schema = z.object({
+const builtInSchema = z.object({
   kind: z.enum(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Service', 'Ingress', 'ConfigMap', 'PVC', 'Node', 'HPA', 'Event', 'Namespace']),
   name: kubernetesNameSchema,
   namespace: namespaceSchema.optional()
@@ -27,7 +29,17 @@ const schema = z.object({
   }
 });
 
-const API_VERSION_BY_KIND: Record<z.infer<typeof schema>['kind'], string> = {
+const customResourceSchema = z.object({
+  addition_key: z.string().min(1).max(64),
+  resource: z.string().min(1).max(253),
+  name: kubernetesNameSchema,
+  namespace: namespaceSchema.optional()
+}).strict();
+
+const schema = z.union([builtInSchema, customResourceSchema]);
+type BuiltInKind = z.infer<typeof builtInSchema>['kind'];
+
+const API_VERSION_BY_KIND: Record<BuiltInKind, string> = {
   Pod: 'v1', Service: 'v1', ConfigMap: 'v1', PVC: 'v1', Node: 'v1', Event: 'v1', Namespace: 'v1',
   Deployment: 'apps/v1', StatefulSet: 'apps/v1', DaemonSet: 'apps/v1',
   CronJob: 'batch/v1', Job: 'batch/v1', Ingress: 'networking.k8s.io/v1', HPA: 'autoscaling/v2',
@@ -189,7 +201,7 @@ async function resolvePodOwnership(pod: any, namespace: string): Promise<Record<
 }
 
 /** Read one supported Kubernetes object by exact kind, name, and namespace. */
-async function readResource(kind: z.infer<typeof schema>['kind'], name: string, namespace?: string): Promise<any> {
+async function readResource(kind: BuiltInKind, name: string, namespace?: string): Promise<any> {
   switch (kind) {
     case 'Pod': return k8sClient.core.readNamespacedPod({ name, namespace: namespace! });
     case 'Deployment': return k8sClient.apps.readNamespacedDeployment({ name, namespace: namespace! });
@@ -210,7 +222,27 @@ async function readResource(kind: z.infer<typeof schema>['kind'], name: string, 
 }
 
 /** Return a complete redacted resource plus explicit ownership diagnostics. */
-async function handler(params: z.infer<typeof schema>) {
+export async function getResourceHandler(params: z.infer<typeof schema>) {
+  if ('addition_key' in params) {
+    const definition = requireCustomResourceAddition(params.addition_key, params.resource, 'get');
+    if (definition.scope === 'namespaced' && !params.namespace) {
+      throw new ToolExecutionError('INVALID_ARGUMENTS', 'namespace is required for this custom resource');
+    }
+    if (definition.scope === 'cluster' && params.namespace) {
+      throw new ToolExecutionError('INVALID_ARGUMENTS', 'namespace must be omitted for this cluster-scoped custom resource');
+    }
+    checkNamespaceAllowed(params.namespace);
+    const options = {
+      group: definition.apiGroup,
+      version: definition.apiVersion,
+      plural: definition.resource,
+      name: params.name
+    };
+    const original = definition.scope === 'namespaced'
+      ? await k8sClient.customObjects.getNamespacedCustomObject({ ...options, namespace: params.namespace! })
+      : await k8sClient.customObjects.getClusterCustomObject(options);
+    return { resource: redactKubernetesResource(original) };
+  }
   const { kind, name, namespace } = params;
   checkNamespaceAllowed(namespace);
   const original = await readResource(kind, name, namespace);
@@ -266,21 +298,41 @@ function summarizeContainerState(state: any): Record<string, unknown> | undefine
 
 export const getResourceTool: ToolDefinition = {
   name: 'get_resource',
-  description: 'Fetch and inspect one exact Kubernetes resource. Pod reads return a UID-verified ownership path and remediationTarget. Patch only remediationTarget; if it is null, do not guess a controller name.',
+  description: 'Fetch and inspect one exact built-in Kubernetes resource by kind, or an administrator-approved custom resource by addition_key and resource. Pod reads return a UID-verified ownership path and remediationTarget. Patch only remediationTarget; if it is null, do not guess a controller name.',
   capability: 'read',
   timeoutMs: 12000,
-  version: 'v2',
+  version: 'v3',
   outputSchema: OUTPUT_SCHEMA,
   artifactPolicy: 'always',
   schema,
-  scopeResolver: (params) => params.kind === 'Node'
+  scopeResolver: (params) => 'addition_key' in params
+    ? (params.namespace ? { type: 'namespaced', namespace: params.namespace } : { type: 'cluster', kind: params.resource })
+    : params.kind === 'Node'
     ? ({ type: 'cluster', kind: params.kind })
     : params.kind === 'Namespace'
       ? ({ type: 'cluster', kind: params.kind, namespace: params.name })
       : ({ type: 'namespaced', namespace: params.namespace }),
-  handler,
+  handler: getResourceHandler,
   projectForModel: (result, params) => {
     const resource = result?.resource || {};
+    if ('addition_key' in params) {
+      const projection = {
+        schemaVersion: 'acornops.model-context.v1' as const,
+        tool: 'get_resource',
+        status: 'success' as const,
+        summary: `Inspected ${resource?.kind || params.resource} ${params.namespace ? `${params.namespace}/` : ''}${params.name}.`,
+        data: { resource },
+        omissions: [] as Array<Record<string, unknown>>,
+      };
+      const originalBytes = Buffer.byteLength(JSON.stringify(projection));
+      if (originalBytes > 12 * 1024) {
+        projection.data.resource = identity(resource);
+        projection.omissions.push({ path: 'data.resource', reason: 'context_byte_limit', originalBytes });
+      }
+      return {
+        ...projection,
+      };
+    }
     const status = resource?.status || {};
     const ownership = result?.ownership;
     const safeContainers = {

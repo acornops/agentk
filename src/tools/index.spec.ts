@@ -9,14 +9,6 @@ import { scaleWorkloadTool } from './atomic/scale.js';
 import { patchResourceTool } from './atomic/patch-resource.js';
 import { patchWorkloadTool } from './atomic/patch-workload.js';
 import { patchConfigMapTool } from './atomic/patch-configmap.js';
-import { listCustomResourcesTool } from './atomic/list-custom-resources.js';
-import { patchCustomResourceTool } from './atomic/patch-custom-resource.js';
-import {
-  createCustomResourceTool,
-  deleteCustomResourceTool,
-  getCustomResourceTool,
-  watchCustomResourcesTool
-} from './atomic/custom-resource-operations.js';
 
 describe('registerAllTools', () => {
   it('registers each built-in tool with the shared registry', () => {
@@ -32,11 +24,6 @@ describe('registerAllTools', () => {
     expect(registerSpy).toHaveBeenCalledWith(patchWorkloadTool);
     expect(registerSpy).toHaveBeenCalledWith(patchResourceTool);
     expect(registerSpy).toHaveBeenCalledWith(patchConfigMapTool);
-    expect(registerSpy).toHaveBeenCalledWith(listCustomResourcesTool);
-    expect(registerSpy).toHaveBeenCalledWith(getCustomResourceTool);
-    expect(registerSpy).toHaveBeenCalledWith(watchCustomResourcesTool);
-    expect(registerSpy).toHaveBeenCalledWith(createCustomResourceTool);
-    expect(registerSpy).toHaveBeenCalledWith(patchCustomResourceTool);
-    expect(registerSpy).toHaveBeenCalledWith(deleteCustomResourceTool);
+    expect(registerSpy).toHaveBeenCalledTimes(8);
   });
 });

@@ -3,8 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { k8sClient } from '../../k8s/client.js';
 import { ToolExecutionError } from '../errors.js';
-import { WRITE_TOOL_RESULT_OUTPUT_SCHEMA, writeProjection } from '../model-context.js';
-import { ToolDefinition, ToolExecutionContext } from '../registry.js';
+import { ToolExecutionContext } from '../registry.js';
 import { kubernetesNameSchema, kubernetesUidSchema, namespaceSchema, reasonSchema } from '../schemas.js';
 import {
   checkNamespaceAllowed,
@@ -59,6 +58,14 @@ export const patchCustomResourceSchema = z.object({
 
 type CustomResourcePatchRequest = z.infer<typeof patchCustomResourceSchema>;
 
+export interface CustomResourcePatchReceipt {
+  success: true;
+  operationId: string;
+  target: { kind: string; namespace?: string; name: string; uid: string };
+  change: { type: 'patch'; additionKey: string; resource: string; paths: string[] };
+  observed: { resourceVersion: string };
+}
+
 /** Read one JSON Pointer from a custom resource. */
 function pointerValue(resource: unknown, path: string): { found: boolean; value?: unknown } {
   const segments = path.split('/').slice(1).map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
@@ -110,7 +117,7 @@ function buildReceipt(
   request: CustomResourcePatchRequest,
   resource: any,
   operationId: string
-) {
+): CustomResourcePatchReceipt {
   return {
     success: true,
     operationId,
@@ -134,7 +141,7 @@ function buildReceipt(
 export async function patchCustomResourceHandler(
   request: CustomResourcePatchRequest,
   context?: ToolExecutionContext
-) {
+): Promise<CustomResourcePatchReceipt> {
   checkWriteEnabled();
   const definition = requireCustomResourceAddition(request.addition_key, request.resource, 'patch');
   if (definition.scope === 'namespaced' && !request.namespace) {
@@ -205,19 +212,3 @@ export async function patchCustomResourceHandler(
   }
   return buildReceipt(definition, request, updated, operationId);
 }
-
-export const patchCustomResourceTool: ToolDefinition = {
-  name: 'patch_custom_resource',
-  description: 'Patch /spec fields on one exact administrator-approved custom resource. Requires identity from list_custom_resources, read/write access, and normal write approval.',
-  capability: 'write',
-  timeoutMs: 20000,
-  version: 'v1',
-  outputSchema: WRITE_TOOL_RESULT_OUTPUT_SCHEMA,
-  artifactPolicy: 'never',
-  schema: patchCustomResourceSchema,
-  scopeResolver: (params) => params.namespace
-    ? { type: 'namespaced', namespace: params.namespace }
-    : { type: 'cluster', kind: params.resource },
-  handler: patchCustomResourceHandler,
-  projectForModel: (result) => writeProjection('patch_custom_resource', result)
-};
