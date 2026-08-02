@@ -8,7 +8,7 @@ import { WatchResourceKind, WatchStore } from './watch-store.js';
 
 const logger = pino({ level: config.ACORNOPS_AGENT_LOG_LEVEL }).child({ module: 'watch-manager' });
 
-type ApiGroup = 'core' | 'apps' | 'batch' | 'networking';
+type ApiGroup = 'core' | 'apps' | 'batch' | 'networking.k8s.io';
 
 interface ResourceDescriptor {
   kind: WatchResourceKind;
@@ -134,7 +134,7 @@ const RESOURCE_DESCRIPTORS: ResourceDescriptor[] = [
   },
   {
     kind: 'ingresses',
-    apiGroup: 'networking',
+    apiGroup: 'networking.k8s.io',
     resourcePath: 'ingresses',
     namespaced: true,
     listCluster: (options) => k8sClient.networking.listIngressForAllNamespaces(options),

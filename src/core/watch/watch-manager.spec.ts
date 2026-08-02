@@ -116,6 +116,15 @@ describe('WatchManager', () => {
     expect(k8sClient.core.listNode).toHaveBeenCalled();
   });
 
+  it('uses the canonical Kubernetes API group for ingress watches', async () => {
+    const store = new WatchStore();
+    const watchClient = createWatchClient();
+    new WatchManager(store, vi.fn(), watchClient as never).start();
+
+    await vi.waitFor(() => expect(watchCalls.some((call) => call.path === '/apis/networking.k8s.io/v1/ingresses')).toBe(true));
+    expect(watchCalls.some((call) => call.path === '/apis/networking/v1/ingresses')).toBe(false);
+  });
+
   it('does not trigger snapshots for bookmark events', async () => {
     const store = new WatchStore();
     const trigger = vi.fn();
