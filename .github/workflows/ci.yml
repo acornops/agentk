@@ -19,7 +19,7 @@ jobs:
     outputs:
       run_full: ${{ steps.filter.outputs.run_full }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - id: filter
@@ -83,16 +83,16 @@ jobs:
     if: needs.changes.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
       - name: Run Validate
         run: npm run validate:ci
 
@@ -101,14 +101,14 @@ jobs:
     if: needs.changes.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
       - name: Install dependencies
         run: npm ci
       - name: Lint Helm chart
@@ -124,9 +124,9 @@ jobs:
     needs: [changes, validate]
     if: needs.changes.outputs.run_full == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
@@ -152,9 +152,9 @@ jobs:
     needs: [changes, unit-tests]
     if: needs.changes.outputs.run_full == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
@@ -176,9 +176,9 @@ jobs:
     needs: [changes, helm-chart]
     if: needs.changes.outputs.run_full == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
       - name: Install k3d
         run: wget -qO - https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.8.3 bash
       - name: Create k3d cluster
