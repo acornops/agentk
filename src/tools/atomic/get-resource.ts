@@ -298,7 +298,7 @@ function summarizeContainerState(state: any): Record<string, unknown> | undefine
 
 export const getResourceTool: ToolDefinition = {
   name: 'get_resource',
-  description: 'Fetch and inspect one exact built-in Kubernetes resource by kind, or an administrator-approved custom resource by addition_key and resource. Pod reads return a UID-verified ownership path and remediationTarget. Patch only remediationTarget; if it is null, do not guess a controller name.',
+  description: 'Inspect one Kubernetes resource; Pod results include a UID-verified ownership path.',
   capability: 'read',
   timeoutMs: 12000,
   version: 'v3',

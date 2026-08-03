@@ -435,7 +435,7 @@ async function listAcrossAllowedNamespaces(
 
 export const listResourcesTool: ToolDefinition = {
   name: 'list_resources',
-  description: 'List built-in Kubernetes resources by kind, or an administrator-approved custom resource by addition_key and resource. Supports namespace and selector filters. For built-in resources, omit namespace entirely to query all allowed namespaces; never pass namespace="all" or namespace="*". Follow continue_token until it is empty.',
+  description: 'List Kubernetes resources by kind and filters; omit namespace entirely for all allowed namespaces.',
   capability: 'read',
   timeoutMs: 12000,
   version: 'v2',

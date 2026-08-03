@@ -143,7 +143,7 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
 
 export const scaleWorkloadTool: ToolDefinition = {
   name: 'scale_workload',
-  description: 'Scale a Deployment or StatefulSet to a guarded target replica count.',
+  description: 'Scale a Deployment or StatefulSet to a target replica count.',
   capability: 'write',
   timeoutMs: 15000,
   version: 'v1',

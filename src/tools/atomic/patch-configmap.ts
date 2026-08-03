@@ -201,7 +201,7 @@ export async function patchConfigMapHandler(request: PatchConfigMapRequest, cont
 
 export const patchConfigMapTool: ToolDefinition = {
   name: 'patch_configmap',
-  description: 'Set or remove bounded non-secret ConfigMap data keys after get_resource. Requires exact UID and resourceVersion evidence. Does not restart consumers.',
+  description: 'Set or remove non-secret ConfigMap data after get_resource. Does not restart consumers.',
   capability: 'write',
   timeoutMs: 20000,
   version: 'v1',

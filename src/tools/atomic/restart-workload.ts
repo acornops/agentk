@@ -104,7 +104,7 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
 
 export const restartWorkloadTool: ToolDefinition = {
   name: 'restart_workload',
-  description: 'Trigger a rolling restart for a Deployment, StatefulSet, or DaemonSet.',
+  description: 'Restart a Deployment, StatefulSet, or DaemonSet.',
   capability: 'write',
   timeoutMs: 15000,
   version: 'v1',

@@ -146,7 +146,7 @@ async function handler(params: z.infer<typeof schema>, context?: ToolExecutionCo
 
 export const getResourceLogsTool: ToolDefinition = {
   name: 'get_resource_logs',
-  description: 'Read logs from a Pod container with tail and time-range controls.',
+  description: 'Read recent logs from a Pod container.',
   capability: 'read',
   timeoutMs: 20000,
   version: 'v1',

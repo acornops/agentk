@@ -609,7 +609,7 @@ export async function patchWorkloadHandler(request: PatchWorkloadRequest, contex
 
 export const patchWorkloadTool: ToolDefinition = {
   name: 'patch_workload',
-  description: 'Patch the exact workload remediationTarget after get_resource. Use its UID, resourceVersion, container identities, images, and environment source descriptors as preconditions. Supports guarded image, non-secret environment, label, and annotation changes. Never patch a generated Pod or guessed controller name.',
+  description: 'Update a workload image, environment, labels, or annotations after get_resource.',
   capability: 'write',
   timeoutMs: 20000,
   version: 'v2',

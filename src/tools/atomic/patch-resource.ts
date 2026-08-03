@@ -353,7 +353,7 @@ export async function patchResourceHandler(
 
 export const patchResourceTool: ToolDefinition = {
   name: 'patch_resource',
-  description: 'Patch an exact Kubernetes resource after get_resource. Supports guarded Service or Ingress metadata changes, explicitly enabled Service selector changes, and administrator-approved custom-resource /spec changes.',
+  description: 'Update supported metadata or specifications on an inspected resource.',
   capability: 'write',
   timeoutMs: 20000,
   version: 'v3',
