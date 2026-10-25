@@ -1,5 +1,15 @@
 # Runtime dependency security implementation plan
 
+Completed and released for demo on 2026-10-26 as `0.0.1-experimental.14`, source
+`1e8270944da2275251f0462174021654684bf379`.
+[PR #4](https://github.com/acornops/agentk/pull/4), PR/main CI, and
+[release](https://github.com/acornops/agentk/actions/runs/40220630996) passed,
+including Kubernetes lifecycle, Helm rollout and read-only RBAC gates. Image
+provenance and generated chart mirror/Pages publication verified. Full image
+scanning shows fewer High/Critical findings and no new package/advisory pairs,
+but still flags Zod, bundled npm and OS packages. The production gate remains
+open in the quality/debt records; this archive closes only the scoped patches.
+
 > **For agentic workers:** Use `superpowers:executing-plans` for the single scoped task below.
 
 **Goal:** Remove the compatible `fast-copy`, `ip-address`, and `js-yaml` runtime advisories without changing AgentK application code or Zod's major version.

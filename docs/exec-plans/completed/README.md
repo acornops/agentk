@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Runtime dependency security](2026-10-26-runtime-dependency-security.md) — Compatible patches released; Zod and image security gates remain open.
+
 Move finished plans here after the work lands.
 
 Keep only completed plans that remain useful as durable design or validation context.
