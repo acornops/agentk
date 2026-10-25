@@ -2,6 +2,8 @@
 
 Assessment date: April 10, 2026.
 
+Security follow-up (October 26, 2026): the [runtime dependency plan](exec-plans/active/2026-10-26-runtime-dependency-security.md) records compatible dependency patches and an unresolved Zod collection-validation release gate. Existing body-size limits are not sufficient evidence that oversized invalid arrays are safe to validate.
+
 | Area | Score | Evidence | Main Gap |
 | --- | --- | --- | --- |
 | Control-plane contract alignment | 4/5 | Mirrored contract docs, manifests, repo checks | No replay harness for large degraded websocket sessions |
