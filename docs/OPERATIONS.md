@@ -87,7 +87,14 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
 ## Failure Modes
 
 - Agent cannot connect: verify `ACORNOPS_AGENT_PLATFORM_URL`, DNS, TLS, and the platform `/api/v1/agent/connect` route. With additional CA trust enabled, inspect pod events for a missing ConfigMap, Secret, or key; repeated issuer errors indicate a wrong or incomplete bundle, while hostname mismatches and expired certificates must be fixed at the platform endpoint.
-- Authentication rejected: rotate or reissue the cluster agent key from the control plane.
+- Authentication rejected: use **Replace AgentK credential** in cluster settings.
+  Generating the command revokes the old key immediately. Managed-key changes
+  restart pods through the chart checksum; externally managed Secrets must be
+  updated and their consumers restarted by the operator.
+- Routine upgrade or repair: use **Upgrade or repair AgentK**. It reuses installed
+  Helm values and credentials and waits for the rollout. Check context, release,
+  namespace, and any image pin before execution; it will not install a missing
+  release. See the [chart maintenance guide](../charts/acornops-agentk/README.md#agent-maintenance-and-credential-replacement).
 - No telemetry: verify Kubernetes RBAC, namespace scope, metrics-server availability, and collector logs.
 - Slow or skipped telemetry: inspect `watch-manager` and `snapshot-manager` logs, increase the snapshot interval if collection takes too long, then tune `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` if list fallback or relist recovery is the bottleneck.
 - HA does not elect a leader: verify Lease RBAC and `leaderElection.enabled=true`.

@@ -1,6 +1,6 @@
 {
   "name": "acornops-agentk",
-  "version": "0.0.1-experimental.14",
+  "version": "0.0.1-experimental.15",
   "description": "AcornOps Kubernetes workload-cluster agent.",
   "type": "module",
   "main": "dist/index.js",
@@ -25,7 +25,7 @@
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "ws": "^8.20.1",
-    "zod": "^3.24.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",

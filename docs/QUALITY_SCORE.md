@@ -2,7 +2,7 @@
 
 Assessment date: April 10, 2026.
 
-Security follow-up (October 26, 2026): the [runtime dependency plan](exec-plans/completed/2026-10-26-runtime-dependency-security.md) records compatible dependency patches and an unresolved Zod collection-validation release gate. Existing body-size limits are not sufficient evidence that oversized invalid arrays are safe to validate.
+Security follow-up (October 26, 2026): the [runtime dependency plan](exec-plans/completed/2026-10-26-runtime-dependency-security.md) records the earlier compatible patches. The independently reviewed [Zod 4 qualification](exec-plans/completed/runtime-validation-security.md) verifies early rejection for bounded arrays, input-schema compatibility, and a zero-advisory runtime audit. Publication and image-level release acceptance remain separate gates.
 
 | Area | Score | Evidence | Main Gap |
 | --- | --- | --- | --- |

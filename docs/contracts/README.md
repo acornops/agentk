@@ -171,6 +171,12 @@ The control plane can issue:
 
 The tool implementation remains local to the agent, but the advertised schemas are consumed by control plane and then propagated to llm-gateway and execution-engine as part of the platform contract.
 
+Input schemas use JSON Schema draft 2020-12 and describe inputs before defaults
+and transforms. Defaulted fields remain optional; default annotations do not
+execute defaults in consumers. Ordinary unions use `anyOf`, while discriminated
+operation unions use `oneOf`. The agent still enforces refinements and policy
+checks that cannot be represented in JSON Schema.
+
 `get_resource` requires the exact Kubernetes kind, name, and namespace. Callers
 must not infer an owning workload name from a Pod name; they should use
 the `remediationTarget` returned by Pod reads. That projection follows a

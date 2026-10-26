@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 const chart = 'charts/acornops-agentk';
 
@@ -83,6 +85,19 @@ const inlineCaArgs = [
 ];
 
 const readOnly = helmTemplate(baseArgs);
+const managedKeyChecksum = createHash('sha256').update('test-key').digest('hex');
+assertIncludes(readOnly, `checksum/agent-key: ${managedKeyChecksum}`, 'managed key must roll out pods when changed');
+assert.equal(helmTemplate(baseArgs), readOnly, 'unchanged values must render deterministically');
+const changedKey = helmTemplate([...baseArgs, '--set-string', 'config.agentKey=replacement-key']);
+assertExcludes(changedKey, `checksum/agent-key: ${managedKeyChecksum}`, 'replaced key must change the pod checksum');
+assertIncludes(changedKey, `checksum/agent-key: ${createHash('sha256').update('replacement-key').digest('hex')}`, 'checksum must cover the replacement key');
+const customAnnotations = helmTemplate([...baseArgs, '--set-json', 'podAnnotations={"checksum/agent-key":"override","example.com/custom":"preserved"}']);
+assertIncludes(customAnnotations, `checksum/agent-key: ${managedKeyChecksum}`, 'managed key checksum must override conflicting annotations');
+assertIncludes(customAnnotations, 'example.com/custom: preserved', 'key checksum must preserve other annotations');
+const externalKeyArgs = [...baseArgs, '--set-string', 'existingSecret.name=operator-owned'];
+const externalKey = helmTemplate(externalKeyArgs);
+assertExcludes(externalKey, 'checksum/agent-key:', 'external Secrets remain operator-owned');
+assert.equal(helmTemplate([...externalKeyArgs, '--set-string', 'config.agentKey=ignored-key']), externalKey, 'unused managed key must not restart external-Secret pods');
 assertIncludes(
   readOnly,
   'value: "wss://api.acornops.dev/api/v1/agent/connect"',

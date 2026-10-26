@@ -1,6 +1,9 @@
 {{- $platformAdditionalCaEnabled := include "acornops-agent.platformAdditionalCaEnabled" . -}}
 {{- $platformAdditionalCaInlinePem := default "" .Values.config.tls.additionalCaBundle.inlinePem -}}
 {{- $podAnnotations := deepCopy (default dict .Values.podAnnotations) -}}
+{{- if not .Values.existingSecret.name -}}
+{{- $_ := set $podAnnotations "checksum/agent-key" (required "config.agentKey is required" .Values.config.agentKey | sha256sum) -}}
+{{- end -}}
 {{- if $platformAdditionalCaInlinePem -}}
 {{- $_ := set $podAnnotations "checksum/platform-additional-ca" ($platformAdditionalCaInlinePem | sha256sum) -}}
 {{- end -}}

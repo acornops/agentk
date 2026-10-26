@@ -45,7 +45,7 @@ describe('zodToJsonSchema', () => {
   it('advertises explicit non-secret confirmation for ConfigMap writes', () => {
     const schema = zodToJsonSchema(patchConfigMapSchema) as any;
 
-    expect(schema.properties.confirm_non_secret_data).toEqual({ const: true });
+    expect(schema.properties.confirm_non_secret_data).toMatchObject({ const: true });
     expect(schema.required).toContain('confirm_non_secret_data');
     expect(schema.properties.changes.items.oneOf).toHaveLength(2);
     expect(schema.properties.changes.items.oneOf.map((item: any) => item.properties.type.const))

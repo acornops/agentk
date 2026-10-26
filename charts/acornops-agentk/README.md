@@ -102,6 +102,25 @@ install or require trust-manager. Cluster administrators remain responsible
 for publishing the bundle into every workload cluster and AgentK release
 namespace that needs it.
 
+### Agent maintenance and credential replacement
+
+Use **Upgrade or repair AgentK** in cluster settings for routine maintenance.
+The generated command uses `helm upgrade --reuse-values` without `--install`,
+preserving the release's credential, RBAC, namespace scope, custom CA, and image
+overrides. Verify the Kubernetes context, release name, and namespace before
+running it. An explicit image tag or digest remains pinned; update that override
+deliberately if an image upgrade is intended. The command changes a maintenance
+pod annotation and waits up to five minutes, including for same-version repair.
+
+Use **Replace AgentK credential** only when a new key is needed. Generating that
+command immediately revokes the old key. Review its Helm values and access mode
+before running; replacement instructions are not the value-preserving repair
+path. For chart-managed Secrets, a deterministic `checksum/agent-key` pod
+annotation restarts pods when the key changes. Unchanged keys do not force a
+rollout. With `existingSecret.name`, update the operator-owned Secret with the
+new key and restart AgentK yourself; setting `config.agentKey` does not update an
+external Secret.
+
 ### CA rotation and restarts
 
 Node.js reads `NODE_EXTRA_CA_CERTS` only at process startup, and the file uses a

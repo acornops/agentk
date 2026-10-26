@@ -1,5 +1,8 @@
 # Completed Execution Plans
 
+- [Agent maintenance standardization](agent-maintenance-standardization.md) — Source qualification complete; release acceptance is tracked separately.
+- [Runtime validation security](runtime-validation-security.md) — Source qualification complete; release acceptance is tracked separately.
+
 - [Runtime dependency security](2026-10-26-runtime-dependency-security.md) — Compatible patches released; Zod and image security gates remain open.
 
 Move finished plans here after the work lands.
