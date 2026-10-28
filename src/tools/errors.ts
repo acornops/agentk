@@ -28,6 +28,7 @@ const LOG_SAFE_REASONS = new Set([
   'ToolResultMissing',
   'ToolResultTooLarge',
   'KubernetesPreconditionFailed',
+  'ContainerNotStarted',
   'UnclassifiedKubernetesClientError',
   'PostWriteVerificationFailed',
   'ResultProjectionFailed',

@@ -4,6 +4,13 @@
   "runtimeDependencies": ["control-plane"],
   "counterparts": {
     "control-plane": {
+      "podLogsUnavailable": {
+        "toolCode": "PRECONDITION_FAILED",
+        "reason": "ContainerNotStarted",
+        "upstreamStatus": 400,
+        "phase": "kubernetes_api",
+        "retryable": false
+      },
       "agentHeaders": ["x-agent-key", "x-connector-version"],
       "connectorVersionHeader": "agentk/<CONNECTOR_VERSION>; required, validated against agentType, and persisted as last_connector_version",
       "agentTypeValues": ["agentk"],

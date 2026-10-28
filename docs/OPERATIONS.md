@@ -96,6 +96,10 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
   namespace, and any image pin before execution; it will not install a missing
   release. See the [chart maintenance guide](../charts/acornops-agentk/README.md#agent-maintenance-and-credential-replacement).
 - No telemetry: verify Kubernetes RBAC, namespace scope, metrics-server availability, and collector logs.
+- Pod logs report `ContainerNotStarted`: the selected container is waiting to
+  start, so it has no logs yet. Check its status and events (for example an image
+  pull failure), then refresh after startup. This uses sanitized
+  `PRECONDITION_FAILED` tool metadata rather than exposing Kubernetes error bodies.
 - Slow or skipped telemetry: inspect `watch-manager` and `snapshot-manager` logs, increase the snapshot interval if collection takes too long, then tune `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` if list fallback or relist recovery is the bottleneck.
 - HA does not elect a leader: verify Lease RBAC and `leaderElection.enabled=true`.
 - Tool rejected before execution: verify handshake session policy, local namespace maximum, and write enablement.

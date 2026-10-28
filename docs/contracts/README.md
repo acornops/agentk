@@ -19,6 +19,14 @@ Machine-readable contract data for this repo lives in `docs/contracts/manifest.j
 
 ## Shared Invariants
 
+- `get_resource_logs` recognizes Kubernetes HTTP 400 waiting-to-start responses
+  and returns MCP `isError: true` with `structuredContent.data` containing
+  `code: PRECONDITION_FAILED`, `reason: ContainerNotStarted`, `status: 400`,
+  `phase: kubernetes_api`, and `retryable: false`. The message is constant and
+  contains no pod, image, registry, or upstream response details. Other failures
+  retain their existing classification. Control Plane maps this condition to
+  `POD_LOGS_UNAVAILABLE` (409); older consumers retain generic error handling.
+
 - The connection is outbound-only from agent to control plane.
 - HA is active-passive. When leader election is enabled, only the elected replica opens the WebSocket; passive replicas do not participate in the protocol.
 - Control plane is authoritative for `workspaceId`, `targetId`, `targetType`, snapshot interval, and builtin tool registration.

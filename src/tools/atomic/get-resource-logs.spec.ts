@@ -104,6 +104,34 @@ describe('Get Resource Logs Tool', () => {
     ).rejects.toThrow('Kubernetes pod log request failed with status 404');
   });
 
+  it.each(['json', 'text'])('classifies a waiting container from a %s error without exposing upstream details', async (format) => {
+    const message = 'container "api" in pod "private-pod" is waiting to start: trying and failing to pull image private-registry/image';
+    const body = format === 'json'
+      ? JSON.stringify({ kind: 'Status', apiVersion: 'v1', status: 'Failure', message, reason: 'BadRequest', code: 400 })
+      : message;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(body, { status: 400 }));
+
+    await expect(readPodLogsText('private-pod', 'default', {
+      previous: false, tail_lines: 100, limit_bytes: 1024,
+    })).rejects.toMatchObject({
+      toolCode: 'PRECONDITION_FAILED',
+      message: 'No logs yet; this container has not started.',
+      data: { status: 400, reason: 'ContainerNotStarted', phase: 'kubernetes_api' },
+    });
+  });
+
+  it.each([
+    [400, 'previous terminated container "api" in pod "api-pod" not found'],
+    [400, 'container "invalid" is not valid for pod "api-pod"'],
+    [403, 'container "api" in pod "api-pod" is waiting to start: forbidden'],
+  ])('does not turn other log errors (%s) into a waiting-container result', async (status, message) => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ message }), { status }));
+
+    await expect(readPodLogsText('api-pod', 'default', {
+      previous: false, tail_lines: 100, limit_bytes: 1024,
+    })).rejects.toThrow(`Kubernetes pod log request failed with status ${status}`);
+  });
+
   it('rejects an upstream log body larger than the hard output limit', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('x'.repeat(1024 * 1024 + 1), { status: 200 }));
 

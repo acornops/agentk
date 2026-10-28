@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Pod logs unavailable before startup](pod-logs-unavailable.md)
+
 - [Agent maintenance standardization](agent-maintenance-standardization.md) — Source qualification complete; release acceptance is tracked separately.
 - [Runtime validation security](runtime-validation-security.md) — Source qualification complete; release acceptance is tracked separately.
 

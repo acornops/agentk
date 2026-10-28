@@ -95,6 +95,18 @@ function buildPodLogUrl(name: string, namespace: string, params: {
   return url;
 }
 
+/** Recognize the Kubernetes waiting-container error without returning its details. */
+function isContainerWaitingToStart(body: string): boolean {
+  let message: unknown = body;
+  try {
+    message = JSON.parse(body)?.message;
+  } catch {
+    // The pod log endpoint can return a plain-text error instead of a Status object.
+  }
+  return typeof message === 'string'
+    && /^container "[^"\r\n]+" in pod "[^"\r\n]+" is waiting to start:/.test(message);
+}
+
 /** Read pod logs as plain text from the Kubernetes API. */
 export async function readPodLogsText(name: string, namespace: string, params: {
   container?: string;
@@ -117,6 +129,11 @@ export async function readPodLogsText(name: string, namespace: string, params: {
   });
   const body = await readBoundedBody(response);
   if (!response.ok) {
+    if (response.status === 400 && isContainerWaitingToStart(body)) {
+      throw new ToolExecutionError('PRECONDITION_FAILED', 'No logs yet; this container has not started.', {
+        status: 400, reason: 'ContainerNotStarted', phase: 'kubernetes_api',
+      });
+    }
     throw new Error(`Kubernetes pod log request failed with status ${response.status}`);
   }
   return body;
