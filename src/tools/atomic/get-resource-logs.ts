@@ -6,6 +6,7 @@ import { checkNamespaceAllowed } from '../utils.js';
 import { containerNameSchema, kubernetesNameSchema, namespaceSchema } from '../schemas.js';
 import { ToolExecutionError } from '../errors.js';
 import { fullToolResultOutputSchema } from '../model-context.js';
+import { redactStructuredLogText } from '../structured-log-redaction.js';
 
 const OUTPUT_SCHEMA = fullToolResultOutputSchema({
   type: 'object', required: ['name', 'namespace', 'container', 'logs'],
@@ -58,7 +59,9 @@ async function readBoundedBody(response: Response): Promise<string> {
 
 /** Remove common credential shapes from logs before model or artifact handling. */
 export function redactLogSecrets(value: string): string {
-  return LOG_SECRET_PATTERNS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), value);
+  return redactStructuredLogText(value, (text) => LOG_SECRET_PATTERNS.reduce(
+    (current, [pattern, replacement]) => current.replace(pattern, replacement), text
+  ));
 }
 
 /** Return a UTF-8-safe suffix within a serialized byte budget. */

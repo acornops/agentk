@@ -75,6 +75,11 @@
   ConfigMap patch RBAC additionally requires global write enablement. Default
   read-only installs do not gain ConfigMap access.
 - Pod logs are sensitive application data. AgentK bounds but does not persist or log tool results.
+- Log redaction covers common credential assignments and quoted JSON keys,
+  including nested values, JSONL, and up to two embedded JSON-string layers,
+  before full-result and model-excerpt construction. It preserves unrelated
+  formatting; ambiguous quoted or over-deep sensitive segments are withheld. This
+  cannot identify arbitrary secrets and does not scrub previously stored data.
 - Tool failure logs use a fixed allowlist of identity-free status, reason, phase,
   outcome, and operation-correlation fields. Raw exceptions, Kubernetes bodies,
   tool arguments, and resource identities remain excluded.

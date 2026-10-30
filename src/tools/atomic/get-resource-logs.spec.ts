@@ -24,6 +24,88 @@ vi.mock('../../k8s/client.js', () => ({
 }));
 
 describe('Get Resource Logs Tool', () => {
+  it.each([
+    'log "unterminated\n{"password":"fixture-secret"}',
+    'password=first"fixture-secret"',
+    'password=\'first "fixture-secret" tail\'',
+    '{"Bearer fixture-secret":"ready"}',
+  ])('preserves legacy redaction across quoted-token boundaries: %s', (input) => {
+    const output = redactLogSecrets(input);
+    expect(output).not.toContain('fixture-secret');
+    expect(output).toContain('<redacted');
+    expect(redactLogSecrets(output)).toBe(output);
+  });
+
+  it.each([
+    ['JSON', '{"password":"fixture-secret","count":3}', '{"password":"<redacted>","count":3}'],
+    ['JSONL', '{"api_key":"fixture-secret"}\n{"status":"ready"}\n', '{"api_key":"<redacted>"}\n{"status":"ready"}\n'],
+    ['prefixed JSON', 'time INFO {"token":"fixture-secret","status":"ready"}', 'time INFO {"token":"<redacted>","status":"ready"}'],
+    ['nested value', '{"secret":{"parts":["fixture-secret"]},"ok":true}', '{"secret":"<redacted>","ok":true}'],
+    ['escaped value', '{"password":"fixture-\\"secret","ok":true}', '{"password":"<redacted>","ok":true}'],
+    ['escaped key', '{"pass\\u0077ord":"fixture-secret","ok":true}', '{"pass\\u0077ord":"<redacted>","ok":true}'],
+    ['safe text', 'ready 🙂\n{"message":"normal", "count":2}', 'ready 🙂\n{"message":"normal", "count":2}'],
+  ])('redacts %s without changing unrelated log evidence', (_name, input, expected) => {
+    expect(redactLogSecrets(input)).toBe(expected);
+    expect(redactLogSecrets(expected)).toBe(expected);
+  });
+
+  it.each([
+    '{"password":"fixture-secret',
+    '{"password":{\n"part":"fixture-secret"',
+    '-----BEGIN PRIVATE KEY-----\nfixture-secret',
+    JSON.stringify({ message: JSON.stringify({ password: 'fixture-secret', ok: true }) }),
+    JSON.stringify({ message: JSON.stringify({ message: JSON.stringify({ password: 'fixture-secret' }) }) }),
+  ])('withholds secrets in truncated or encoded log content', (input) => {
+    const output = redactLogSecrets(input);
+    expect(output).not.toContain('fixture-secret');
+    expect(output).toContain('<redacted');
+    expect(redactLogSecrets(output)).toBe(output);
+  });
+
+  it('sanitizes JSON strings containing ordinary assignment credentials without corrupting JSON', () => {
+    expect(JSON.parse(redactLogSecrets('{"message":"password=fixture-secret","ok":true}')))
+      .toEqual({ message: 'password=<redacted>', ok: true });
+  });
+
+  it('preserves large harmless JSONL within the pod-log byte ceiling', () => {
+    const logs = '{"level":"info","message":"request completed","status":200}\n'.repeat(12000);
+    expect(Buffer.byteLength(logs)).toBeLessThan(1024 * 1024);
+    expect(redactLogSecrets(logs)).toBe(logs);
+  });
+
+  it('redacts many plain assignments before the next quoted JSON record', () => {
+    const plain = 'password=fixture-secret '.repeat(12000);
+    const sanitized = 'password=<redacted> '.repeat(12000);
+    for (const suffix of ['', '{"password":"fixture-secret","status":"ready"}']) {
+      expect(redactLogSecrets(plain + suffix)).toBe(sanitized + suffix.replace('fixture-secret', '<redacted>'));
+    }
+  });
+
+  it('withholds over-deep sensitive values and encoded strings without exposing their tail', () => {
+    const deep = '{"password":' + '['.repeat(33) + '"fixture-secret"' + ']'.repeat(33) + '}';
+    let encoded = JSON.stringify({ password: 'fixture-secret' });
+    for (let layer = 0; layer < 4; layer += 1) encoded = JSON.stringify({ message: encoded });
+    for (const input of [deep, encoded]) {
+      const output = redactLogSecrets(input);
+      expect(output).not.toContain('fixture-secret');
+      expect(output).toContain('<redacted-unparseable-log-segment>');
+      expect(redactLogSecrets(output)).toBe(output);
+    }
+  });
+
+  it('redacts the fetched full result before deriving the model excerpt', async () => {
+    const logs = 'safe line\n'.repeat(1200) + '{"api_key":"fixture-secret","status":"ready"}\n';
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(logs, { status: 200 }));
+    const params = { name: 'api', namespace: 'default', previous: false, tail_lines: 200, limit_bytes: 1024 * 1024 };
+    const result = await getResourceLogsTool.handler(params);
+    const projected = getResourceLogsTool.projectForModel(result, params);
+    expect(result.logs).not.toContain('fixture-secret');
+    expect(projected.data.logExcerpt).not.toContain('fixture-secret');
+    expect(projected.data.logExcerpt).toContain('"status":"ready"');
+    expect(Buffer.byteLength(String(projected.data.logExcerpt))).toBeLessThanOrEqual(8192);
+    expect(projected.omissions).toHaveLength(1);
+  });
+
   it('redacts common credentials before model and artifact handling', () => {
     const value = redactLogSecrets(
       'Authorization: Bearer abc.def Basic dXNlcjpwYXNz password=hunter2 '
