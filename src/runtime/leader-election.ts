@@ -2,16 +2,11 @@ import type * as k8s from '@kubernetes/client-node';
 import pino from 'pino';
 import { config } from '../config.js';
 import { k8sClient } from '../k8s/client.js';
+import { createLeaseApi, type LeaseApi } from './lease-api.js';
 
 const logger = pino({ level: config.ACORNOPS_AGENT_LOG_LEVEL }).child({ module: 'leader-election' });
 
 type Lease = k8s.V1Lease;
-
-interface LeaseApi {
-  readNamespacedLease(name: string, namespace: string): Promise<Lease>;
-  createNamespacedLease(namespace: string, body: Lease): Promise<Lease>;
-  replaceNamespacedLease(name: string, namespace: string, body: Lease): Promise<Lease>;
-}
 
 export interface LeaderElectionOptions {
   leaseName: string;
@@ -64,20 +59,21 @@ export class LeaderElector {
   private timer: NodeJS.Timeout | null = null;
   private tickInFlight = false;
   private lastSuccessfulRenewMs = 0;
+  private epoch = 0;
+  private watchdog: NodeJS.Timeout | null = null;
+  private operation: AbortController | null = null;
+  private unsettled: Promise<unknown> | null = null;
 
   /** Initialize a Lease-backed leader elector. */
   constructor(private readonly options: LeaderElectionOptions) {
-    this.api = options.api ?? {
-      readNamespacedLease: (name, namespace) => k8sClient.coordination.readNamespacedLease({ name, namespace }),
-      createNamespacedLease: (namespace, body) => k8sClient.coordination.createNamespacedLease({ namespace, body }),
-      replaceNamespacedLease: (name, namespace, body) => k8sClient.coordination.replaceNamespacedLease({ name, namespace, body }),
-    };
+    this.api = options.api ?? createLeaseApi(k8sClient.coordination);
   }
 
   /** Start attempting to acquire or renew leadership. */
   public start(): void {
     if (!this.stopped) return;
     this.stopped = false;
+    this.epoch++;
     logger.info(this.logFields(), 'Starting leader election');
     this.schedule(0);
   }
@@ -86,13 +82,16 @@ export class LeaderElector {
   public async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    const epoch = ++this.epoch;
     this.clearTimer();
+    this.clearWatchdog();
+    this.operation?.abort();
     const wasLeader = this.isLeader;
     this.isLeader = false;
 
     if (wasLeader) {
       await this.emitLost('shutdown');
-      await this.releaseLease();
+      if (this.stopped && epoch === this.epoch && !this.unsettled) await this.releaseLease(epoch);
     }
   }
 
@@ -120,7 +119,7 @@ export class LeaderElector {
     this.tickInFlight = true;
 
     try {
-      await this.tryAcquireOrRenew();
+      if (!this.unsettled) await this.tryAcquireOrRenew(this.epoch);
     } finally {
       this.tickInFlight = false;
       if (!this.stopped) {
@@ -129,48 +128,50 @@ export class LeaderElector {
     }
   }
 
-  private async tryAcquireOrRenew(): Promise<void> {
+  private async tryAcquireOrRenew(epoch: number): Promise<void> {
     let lease: Lease | null = null;
     try {
-      lease = await this.api.readNamespacedLease(this.options.leaseName, this.options.leaseNamespace);
+      lease = await this.request((signal) => this.api.readNamespacedLease(this.options.leaseName, this.options.leaseNamespace, signal));
     } catch (err) {
-      if (this.stopped) return;
+      if (!this.isCurrent(epoch)) return;
       if (getErrorStatus(err) === 404) {
-        await this.createLease();
+        await this.createLease(epoch);
         return;
       }
       await this.handleApiFailure(err, 'read');
       return;
     }
-    if (this.stopped) return;
+    if (!this.isCurrent(epoch)) return;
 
     const holder = lease.spec?.holderIdentity || '';
     if (holder === this.options.holderIdentity) {
-      await this.renewLease(lease, false);
+      await this.renewLease(lease, false, epoch);
       return;
     }
 
     if (this.isLeader) {
       await this.loseLeadership(`lease-held-by-${holder || 'empty'}`);
+      return;
     }
 
     if (!holder || this.isExpired(lease)) {
-      await this.renewLease(lease, true);
+      await this.renewLease(lease, true, epoch);
       return;
     }
 
     logger.debug({ ...this.logFields(), currentHolder: holder }, 'Lease is held by another replica');
   }
 
-  private async createLease(): Promise<void> {
+  private async createLease(epoch: number): Promise<void> {
     const body = this.buildLease();
+    const startedAt = performance.now();
 
     try {
-      const created = await this.api.createNamespacedLease(this.options.leaseNamespace, body);
-      if (this.stopped) return;
-      await this.markRenewed(created, 'created');
+      const created = await this.request((signal) => this.api.createNamespacedLease(this.options.leaseNamespace, body, signal));
+      if (!this.isCurrent(epoch)) return;
+      await this.markRenewed(created, 'created', startedAt);
     } catch (err) {
-      if (this.stopped) return;
+      if (!this.isCurrent(epoch)) return;
       const status = getErrorStatus(err);
       if (status === 409) {
         logger.debug(this.logFields(), 'Lease was created by another replica');
@@ -180,19 +181,20 @@ export class LeaderElector {
     }
   }
 
-  private async renewLease(existing: Lease, transition: boolean): Promise<void> {
+  private async renewLease(existing: Lease, transition: boolean, epoch: number): Promise<void> {
     const body = this.buildLease(existing, transition);
+    const startedAt = performance.now();
 
     try {
-      const renewed = await this.api.replaceNamespacedLease(
+      const renewed = await this.request((signal) => this.api.replaceNamespacedLease(
         this.options.leaseName,
         this.options.leaseNamespace,
-        body
-      );
-      if (this.stopped) return;
-      await this.markRenewed(renewed, transition ? 'acquired' : 'renewed');
+        body, signal
+      ));
+      if (!this.isCurrent(epoch)) return;
+      await this.markRenewed(renewed, transition ? 'acquired' : 'renewed', startedAt);
     } catch (err) {
-      if (this.stopped) return;
+      if (!this.isCurrent(epoch)) return;
       const status = getErrorStatus(err);
       if (status === 409 && this.isLeader) {
         await this.loseLeadership('lease-update-conflict');
@@ -231,8 +233,14 @@ export class LeaderElector {
     return Date.now() - renewedAt > durationSeconds * 1000;
   }
 
-  private async markRenewed(lease: Lease, action: 'created' | 'acquired' | 'renewed'): Promise<void> {
-    this.lastSuccessfulRenewMs = leaseRenewedAtMs(lease) || Date.now();
+  private async markRenewed(lease: Lease, action: 'created' | 'acquired' | 'renewed', startedAt: number): Promise<void> {
+    if (lease.spec?.holderIdentity !== this.options.holderIdentity
+      || performance.now() - startedAt >= this.options.renewDeadlineMs) {
+      await this.loseLeadership('unconfirmed-renewal');
+      return;
+    }
+    this.lastSuccessfulRenewMs = startedAt;
+    this.armWatchdog();
     if (!this.isLeader) {
       this.isLeader = true;
       logger.info({ ...this.logFields(), action }, 'Lease acquired');
@@ -247,7 +255,7 @@ export class LeaderElector {
     logger.warn({ ...this.logFields(), err, operation }, 'Leader election API operation failed');
     if (!this.isLeader) return;
 
-    const elapsed = Date.now() - this.lastSuccessfulRenewMs;
+    const elapsed = performance.now() - this.lastSuccessfulRenewMs;
     if (elapsed >= this.options.renewDeadlineMs) {
       await this.loseLeadership(`${operation}-failed-renew-deadline`);
     }
@@ -256,18 +264,26 @@ export class LeaderElector {
   private async loseLeadership(reason: string): Promise<void> {
     if (!this.isLeader) return;
     this.isLeader = false;
+    this.epoch++;
+    this.clearWatchdog();
+    this.operation?.abort();
     logger.warn({ ...this.logFields(), reason }, 'Lease lost');
     await this.emitLost(reason);
   }
 
   private async emitLost(reason: string): Promise<void> {
-    await this.options.onLost(reason);
+    try {
+      await this.options.onLost(reason);
+    } catch {
+      logger.error(this.logFields(), 'Leadership-loss callback failed; remaining passive');
+    }
   }
 
-  private async releaseLease(): Promise<void> {
+  private async releaseLease(epoch: number): Promise<void> {
+    const deadline = performance.now() + 1000;
     try {
-      const lease = await this.api.readNamespacedLease(this.options.leaseName, this.options.leaseNamespace);
-      if (lease.spec?.holderIdentity !== this.options.holderIdentity) return;
+      const lease = await this.request((signal) => this.api.readNamespacedLease(this.options.leaseName, this.options.leaseNamespace, signal), 1000);
+      if (epoch !== this.epoch || lease.spec?.holderIdentity !== this.options.holderIdentity) return;
 
       const released: Lease = {
         ...lease,
@@ -277,10 +293,63 @@ export class LeaderElector {
           renewTime: nowMicro(),
         },
       };
-      await this.api.replaceNamespacedLease(this.options.leaseName, this.options.leaseNamespace, released);
+      await this.request((signal) => this.api.replaceNamespacedLease(this.options.leaseName, this.options.leaseNamespace, released, signal), deadline - performance.now());
       logger.info(this.logFields(), 'Lease released');
     } catch (err) {
       logger.warn({ ...this.logFields(), err }, 'Failed to release Lease during shutdown');
+    }
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdog) clearTimeout(this.watchdog);
+    this.watchdog = null;
+  }
+
+  private armWatchdog(): void {
+    this.clearWatchdog();
+    const epoch = this.epoch;
+    const remaining = this.lastSuccessfulRenewMs + this.options.renewDeadlineMs - performance.now();
+    this.watchdog = setTimeout(() => {
+      // Timer precision must not turn an early callback into a missed deadline.
+      if (this.isCurrent(epoch) && this.isLeader) this.armWatchdog();
+    }, Math.max(1, Math.ceil(remaining)));
+    this.watchdog.unref();
+  }
+
+  /** Check elapsed authority before accepting even an already-queued response. */
+  private isCurrent(epoch: number): boolean {
+    if (this.stopped || epoch !== this.epoch) return false;
+    if (this.isLeader && performance.now() - this.lastSuccessfulRenewMs >= this.options.renewDeadlineMs) {
+      void this.loseLeadership('renew-deadline-exceeded');
+      return false;
+    }
+    return true;
+  }
+
+  /** Cancel transport work and retain its slot until the raw request settles. */
+  private async request<T>(send: (signal: AbortSignal) => Promise<T>, timeoutMs = Math.min(2000, this.options.retryPeriodMs, this.options.renewDeadlineMs)): Promise<T> {
+    if (this.unsettled) throw new Error('Previous Lease request is still unsettled');
+    const remaining = this.isLeader ? this.lastSuccessfulRenewMs + this.options.renewDeadlineMs - performance.now() : timeoutMs;
+    const budget = Math.min(timeoutMs, remaining);
+    if (budget <= 0) throw new Error('Lease request deadline exceeded');
+    const controller = new AbortController();
+    this.operation = controller;
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(new Error('Lease request cancelled or timed out'));
+      controller.signal.addEventListener('abort', abort, { once: true });
+    });
+    const timer = setTimeout(() => controller.abort(), budget);
+    const request = Promise.resolve().then(() => send(controller.signal));
+    this.unsettled = request;
+    const settled = () => { if (this.unsettled === request) this.unsettled = null; };
+    void request.then(settled, settled);
+    try {
+      return await Promise.race([request, cancelled]);
+    } finally {
+      clearTimeout(timer);
+      controller.signal.removeEventListener('abort', abort);
+      if (this.operation === controller) this.operation = null;
     }
   }
 

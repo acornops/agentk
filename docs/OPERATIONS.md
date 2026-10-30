@@ -102,6 +102,13 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
   `PRECONDITION_FAILED` tool metadata rather than exposing Kubernetes error bodies.
 - Slow or skipped telemetry: inspect `watch-manager` and `snapshot-manager` logs, increase the snapshot interval if collection takes too long, then tune `ACORNOPS_AGENT_K8S_CONCURRENCY` and `ACORNOPS_AGENT_K8S_LIST_PAGE_LIMIT` if list fallback or relist recovery is the bottleneck.
 - HA does not elect a leader: verify Lease RBAC and `leaderElection.enabled=true`.
+- Lease requests time out after at most two seconds (or the shorter configured
+  retry/deadline). An independent monotonic watchdog stops the active runtime
+  when renewal is unconfirmed for `renewDeadlineMs`, even if a request hangs.
+  Shutdown revokes local authority before a best-effort one-second Lease release.
+  An adapter that ignores cancellation keeps its single request slot occupied;
+  restart that passive replica if it never settles. Event-loop suspension can
+  delay timers, but a late response cannot restore expired authority.
 - Tool rejected before execution: verify handshake session policy, local namespace maximum, and write enablement.
 - Write tool times out, or Kubernetes accepts a mutation but returns a result that AgentK cannot verify: treat the outcome as unknown, retain the returned operation ID, and inspect the resource before deciding whether to retry the same tool call ID.
 

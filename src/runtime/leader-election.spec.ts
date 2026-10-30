@@ -12,7 +12,7 @@ vi.mock('../k8s/client.js', () => ({
   },
 }));
 
-import { LeaderElector } from './leader-election.js';
+import { LeaderElector, type LeaderElectionOptions } from './leader-election.js';
 
 interface Lease {
   metadata?: {
@@ -75,7 +75,7 @@ class FakeLeaseApi {
   }
 }
 
-function elector(api: FakeLeaseApi, callbacks?: { onAcquired?: () => void; onLost?: (reason: string) => void }) {
+function elector(api: FakeLeaseApi, callbacks?: { onAcquired?: () => void; onLost?: (reason: string) => void }, options: Partial<LeaderElectionOptions> = {}) {
   return new LeaderElector({
     leaseName: 'agent-leader',
     leaseNamespace: 'acornops',
@@ -86,12 +86,13 @@ function elector(api: FakeLeaseApi, callbacks?: { onAcquired?: () => void; onLos
     onAcquired: callbacks?.onAcquired ?? vi.fn(),
     onLost: callbacks?.onLost ?? vi.fn(),
     api,
+    ...options,
   });
 }
 
 describe('LeaderElector', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'performance'] });
     vi.setSystemTime(new Date('2026-05-15T00:00:00.000Z'));
   });
 
@@ -179,7 +180,7 @@ describe('LeaderElector', () => {
     expect(onLost).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1000);
-    expect(onLost).toHaveBeenCalledWith('renew-failed-renew-deadline');
+    expect(onLost).toHaveBeenCalledWith('renew-deadline-exceeded');
     expect(subject.hasLeadership()).toBe(false);
   });
 
@@ -224,5 +225,182 @@ describe('LeaderElector', () => {
     expect(onAcquired).not.toHaveBeenCalled();
     expect(api.replaceCalls).toBe(0);
     expect(subject.hasLeadership()).toBe(false);
+  });
+
+  for (const operation of ['readNamespacedLease', 'replaceNamespacedLease'] as const) {
+    it(`revokes before the 15-second Lease expires when ${operation} never settles`, async () => {
+      const api = new FakeLeaseApi();
+      const onLost = vi.fn();
+      const subject = elector(api, { onLost }, { renewDeadlineMs: 10000, retryPeriodMs: 2000 });
+      subject.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.lease?.spec?.leaseDurationSeconds).toBe(15);
+      const stalled = vi.spyOn(api, operation).mockImplementation(() => new Promise(() => {}));
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(subject.hasLeadership()).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(subject.hasLeadership()).toBe(false);
+      expect(onLost).toHaveBeenCalledTimes(1);
+      expect(onLost).toHaveBeenCalledWith('renew-deadline-exceeded');
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(subject.hasLeadership()).toBe(false);
+      expect(stalled).toHaveBeenCalledTimes(1); // No abandoned-request accumulation.
+      const args = stalled.mock.calls[0] as unknown[];
+      expect((args.at(-1) as AbortSignal).aborted).toBe(true);
+      await subject.stop();
+    });
+  }
+
+  it('ignores late successful renewals after the authority deadline', async () => {
+    const api = new FakeLeaseApi();
+    const onAcquired = vi.fn();
+    const subject = elector(api, { onAcquired }, { renewDeadlineMs: 10000, retryPeriodMs: 2000 });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    let complete!: (lease: Lease) => void;
+    vi.spyOn(api, 'replaceNamespacedLease').mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    await vi.advanceTimersByTimeAsync(10000);
+    complete(api.lease!);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(subject.hasLeadership()).toBe(false);
+    expect(onAcquired).toHaveBeenCalledTimes(1);
+    await subject.stop();
+  });
+
+  it('fences an unsettled request across stop and restart', async () => {
+    const api = new FakeLeaseApi();
+    let release!: () => void;
+    api.readGate = new Promise((resolve) => { release = resolve; });
+    const onAcquired = vi.fn();
+    const subject = elector(api, { onAcquired });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await subject.stop();
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onAcquired).not.toHaveBeenCalled();
+    expect(api.createCalls).toBe(0);
+    await subject.stop();
+  });
+
+  it('bounds shutdown release after immediately revoking local leadership', async () => {
+    const api = new FakeLeaseApi();
+    const onLost = vi.fn();
+    const subject = elector(api, { onLost });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    api.readGate = new Promise(() => {});
+    let stopped = false;
+    void subject.stop().then(() => { stopped = true; });
+    expect(subject.hasLeadership()).toBe(false);
+    expect(onLost).toHaveBeenCalledWith('shutdown');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(stopped).toBe(true);
+  });
+
+  it('does not let an old asynchronous shutdown release newly acquired leadership', async () => {
+    const api = new FakeLeaseApi();
+    let lost!: () => void;
+    const onLost = vi.fn().mockImplementationOnce(() => new Promise<void>((resolve) => { lost = resolve; }));
+    const subject = elector(api, { onLost });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const stopping = subject.stop();
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(subject.hasLeadership()).toBe(true);
+    const version = api.lease?.metadata?.resourceVersion;
+    lost();
+    await stopping;
+    expect(api.lease?.spec?.holderIdentity).toBe('pod-uid-1');
+    expect(api.lease?.metadata?.resourceVersion).toBe(version);
+    expect(subject.hasLeadership()).toBe(true);
+    await subject.stop();
+  });
+
+  it('does not extend local authority when the wall clock goes backwards', async () => {
+    const api = new FakeLeaseApi();
+    const subject = elector(api, undefined, { renewDeadlineMs: 10000, retryPeriodMs: 2000 });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    api.readGate = new Promise(() => {});
+    vi.setSystemTime(new Date('2025-01-01'));
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(subject.hasLeadership()).toBe(false);
+    await subject.stop();
+  });
+
+  it('rejects a late response before a delayed watchdog gets CPU time', async () => {
+    const api = new FakeLeaseApi();
+    const onLost = vi.fn();
+    const subject = elector(api, { onLost }, { renewDeadlineMs: 10000, retryPeriodMs: 2000 });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    let complete!: (lease: Lease) => void;
+    vi.spyOn(api, 'replaceNamespacedLease').mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    await vi.advanceTimersByTimeAsync(2000);
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(12000);
+    complete(api.lease!);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(subject.hasLeadership()).toBe(false);
+    expect(onLost).toHaveBeenCalledTimes(1);
+    clock.mockRestore();
+    await subject.stop();
+  });
+
+  it('rearms a watchdog delivered just before its monotonic deadline', async () => {
+    const api = new FakeLeaseApi();
+    const subject = elector(api, undefined, { renewDeadlineMs: 10000, retryPeriodMs: 2000 });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    api.readGate = new Promise(() => {});
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(9999.5);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(subject.hasLeadership()).toBe(true);
+    clock.mockReturnValue(10000.5);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(subject.hasLeadership()).toBe(false);
+    clock.mockRestore();
+    await subject.stop();
+  });
+
+  it('does not accept a successful response naming a different holder', async () => {
+    const api = new FakeLeaseApi();
+    const onAcquired = vi.fn();
+    vi.spyOn(api, 'createNamespacedLease').mockResolvedValue({ spec: { holderIdentity: 'someone-else' } });
+    const subject = elector(api, { onAcquired });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(subject.hasLeadership()).toBe(false);
+    expect(onAcquired).not.toHaveBeenCalled();
+    await subject.stop();
+  });
+
+  it('allows a healthy standby to acquire only after the old Lease expires', async () => {
+    const api = new FakeLeaseApi();
+    const active = elector(api, undefined, { renewDeadlineMs: 10000, retryPeriodMs: 2000 });
+    active.start();
+    await vi.advanceTimersByTimeAsync(0);
+    // Same stored Lease, but an independent request path remains healthy.
+    const standbyApi = new FakeLeaseApi();
+    standbyApi.readNamespacedLease = async () => api.lease!;
+    standbyApi.replaceNamespacedLease = api.replaceNamespacedLease.bind(api);
+    const acquired = vi.fn();
+    const standby = elector(standbyApi, { onAcquired: acquired }, {
+      holderIdentity: 'pod-uid-2', renewDeadlineMs: 10000, retryPeriodMs: 2000
+    });
+    api.readGate = new Promise(() => {});
+    standby.start();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(active.hasLeadership()).toBe(false);
+    expect(acquired).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(active.hasLeadership()).toBe(false);
+    expect(standby.hasLeadership()).toBe(true);
+    expect(api.lease?.spec?.holderIdentity).toBe('pod-uid-2');
+    await active.stop();
+    await standby.stop();
   });
 });
