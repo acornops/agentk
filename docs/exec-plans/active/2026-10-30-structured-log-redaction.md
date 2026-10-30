@@ -19,6 +19,14 @@ Final self-review also measured repeated plain assignments at about 736 ms for 1
 
 **Remaining release work:** Deploy control-plane protection first, then AgentK; qualify the synthetic live full-result/model/download canary and upgraded-agent coverage. Historical artifact inventory/scrubbing and credential response were not performed. This write-path fix does not change existing stored artifacts. No protocol, dependency or schema change is included.
 
+## Pre-merge verification — 2026-10-30
+
+The user requested a second critical review and authorized merging/pushing to `main`. Fresh review found two additional boundary cases: legacy URI credentials spanning quote tokens, and malformed sensitive values followed by text after an apparent value end. Exact synthetic regressions failed before correction (9 AgentK cases and 2 control-plane corpus tests); the first URI correction then failed 4 extended suffix cases, which were also corrected before merge.
+
+The scanner now recognizes complete URI userinfo before splitting quote tokens and handles bounded userinfo continuation beginning inside a quote. Structural JSON boundaries preserve unrelated URL/email object fields, array elements and keys. Sensitive JSON values require a valid delimiter after their string/scalar/compound boundary; otherwise the ambiguous remainder is withheld. These remain small equivalent local helpers, with no storage-order or policy changes.
+
+The focused suites pass 47 AgentK cases and 19 control-plane artifact/controller cases. Final `npm run validate` passes all 302 AgentK tests; control-plane `npm run validate:ci` passes all 1,504 tests with no failures/skips. The reviewer independently ran 52 direct/JSON-encoded checks across both helpers and confirmed all findings resolved, preserving paths, parseable JSON, harmless fields and idempotence. Final 256-KiB/1-MiB medians (Node v24.2.0, 20 samples after 5 warmups) were 23.81/83.21 ms JSONL, 8.83/39.36 ms assignments, and 4.14/16.90 ms quoted URI input. The coordinated handoff records pushed revisions. Historical-data response and live rollout gates above remain separate.
+
 ## Original proposed plan
 
 The remaining sections preserve the reviewed proposal. Unchecked items describe that proposal, not missing work in the narrowed implementation above; release acceptance remains explicitly pending.

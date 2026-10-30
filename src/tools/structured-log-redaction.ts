@@ -54,12 +54,16 @@ export function redactStructuredLogText(value: string, redactPlainText: (text: s
     );
     const output: string[] = [];
     let cursor = 0;
-    let nextQuote = text.indexOf('"');
+    const boundaries = /"|(\b[a-z][a-z0-9+.-]*:\/\/)[^@\s/]+@/gi;
+    let nextBoundary = boundaries.exec(text);
     while (cursor < text.length) {
-      // Retain the next boundary while consuming assignments before it; repeatedly
-      // searching the remaining plain-text suffix would make that case quadratic.
-      if (nextQuote >= 0 && nextQuote < cursor) nextQuote = text.indexOf('"', cursor);
-      const start = nextQuote;
+      // Retain the next boundary while consuming earlier assignments. URI
+      // userinfo must be handled as a whole even when it contains quote tokens.
+      if (nextBoundary && nextBoundary.index < cursor) {
+        boundaries.lastIndex = cursor;
+        nextBoundary = boundaries.exec(text);
+      }
+      const start = nextBoundary?.index ?? -1;
       const plain = text.slice(cursor, start < 0 ? text.length : start);
       const assignment = ASSIGNMENT_PREFIX.exec(plain);
       if (assignment) {
@@ -77,6 +81,11 @@ export function redactStructuredLogText(value: string, redactPlainText: (text: s
       }
       output.push(redactPlainText(plain));
       if (start < 0) break;
+      if (nextBoundary?.[1]) {
+        output.push(nextBoundary[1], '<redacted>@');
+        cursor = start + nextBoundary[0].length;
+        continue;
+      }
       const end = stringEnd(text, start);
       if (end < 0) {
         output.push(WITHHELD);
@@ -92,12 +101,30 @@ export function redactStructuredLogText(value: string, redactPlainText: (text: s
         output.push(JSON.stringify(WITHHELD));
         break;
       }
+      // Userinfo can begin inside a quote and continue after it. Do not cross
+      // a structural JSON boundary into an unrelated field or array element.
+      if (/\b[a-z][a-z0-9+.-]*:\/\/[^@\s/]*$/i.test(decoded)) {
+        let before = start - 1;
+        while (before >= 0 && /\s/.test(text[before]!)) before -= 1;
+        const structural = '{[:,'.includes(text[before] ?? ' ') && /^\s*[:,}\]]/.test(text.slice(end));
+        const continuation = structural ? null : /^[^@\s/]*@/.exec(text.slice(end));
+        if (continuation) {
+          const combined = decoded + continuation[0];
+          const sanitized = redactPlainText(combined);
+          if (sanitized !== combined) {
+            output.push(JSON.stringify(sanitized.endsWith('@') ? sanitized.slice(0, -1) : WITHHELD), '@');
+            cursor = end + continuation[0].length;
+            continue;
+          }
+        }
+      }
       let after = end;
       while (/\s/.test(text[after] ?? '') && after < text.length) after += 1;
       if (text[after] === ':' && SENSITIVE_KEY.test(decoded)) {
         let startValue = after + 1;
         while (/\s/.test(text[startValue] ?? '') && startValue < text.length) startValue += 1;
-        const endValue = valueEnd(text, startValue);
+        const boundary = valueEnd(text, startValue);
+        const endValue = boundary >= 0 && /^\s*(?:[,}\]]|$)/.test(text.slice(boundary)) ? boundary : -1;
         const replacement = endValue < 0 || text.slice(startValue, endValue) === JSON.stringify(WITHHELD)
           ? WITHHELD : '<redacted>';
         output.push(text.slice(start, startValue), JSON.stringify(replacement));

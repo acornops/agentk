@@ -25,6 +25,48 @@ vi.mock('../../k8s/client.js', () => ({
 
 describe('Get Resource Logs Tool', () => {
   it.each([
+    'https://user:"fixture-secret"@example.com/path',
+    'postgres://user:fixture-secret"tail"@database.test/path',
+    'https://"user:fixture-secret"@example.com/path',
+    '"postgres://user:fixture-secret"@database.test/path',
+    '"postgres://user:fixture-secret"suffix@database.test/path',
+    '"postgres://user:fixture-secret"tail"@database.test/path"',
+    '"postgres://user:"fixture-secret"@database.test/path',
+    '"postgres://user:fixture-secret",suffix@database.test/path',
+  ])('redacts URI credentials across quotes in plain and encoded logs: %s', (message) => {
+    for (const input of [message, JSON.stringify({ message, status: 'ready' })]) {
+      const output = redactLogSecrets(input);
+      expect(output).not.toContain('fixture-secret');
+      expect(output).toContain('/path');
+      expect(redactLogSecrets(output)).toBe(output);
+      if (input.startsWith('{')) expect(JSON.parse(output).status).toBe('ready');
+    }
+  });
+
+  it.each([
+    '{"password":"first"fixture-secret"}',
+    '{"password":123 fixture-secret}',
+    '{"password":null fixture-secret}',
+    '{"password":{"one":"x"}fixture-secret}',
+    '{"password":["first"]fixture-secret}',
+  ])('withholds malformed continuation after a sensitive value: %s', (message) => {
+    for (const input of [message, JSON.stringify({ message })]) {
+      const output = redactLogSecrets(input);
+      expect(output).not.toContain('fixture-secret');
+      expect(output).toContain('<redacted-unparseable-log-segment>');
+      expect(redactLogSecrets(output)).toBe(output);
+    }
+  });
+
+  it('preserves a harmless URL next to an email field', () => {
+    for (const input of [
+      '{"url":"https://example.com","email":"user@example.com"}',
+      '["https://example.com","user@example.com"]',
+      '{"https://example.com":"user@example.com"}',
+    ]) expect(redactLogSecrets(input)).toBe(input);
+  });
+
+  it.each([
     'log "unterminated\n{"password":"fixture-secret"}',
     'password=first"fixture-secret"',
     'password=\'first "fixture-secret" tail\'',
