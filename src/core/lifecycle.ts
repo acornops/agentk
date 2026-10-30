@@ -30,6 +30,20 @@ import { EventCollector } from './collectors/event-collector.js';
 const logger = pino({ level: config.ACORNOPS_AGENT_LOG_LEVEL }).child({ module: 'lifecycle' });
 const KUBERNETES_TARGET_TYPE = 'kubernetes' as const;
 
+/** Classify transport failures without logging peer text, URLs or credentials. */
+function transportErrorReason(err: unknown): string {
+  switch ((err as { code?: unknown } | null)?.code) {
+    case 'ENOTFOUND': case 'EAI_AGAIN': return 'dns';
+    case 'ECONNREFUSED': return 'connection_refused';
+    case 'ETIMEDOUT': return 'timeout';
+    case 'CERT_HAS_EXPIRED': case 'ERR_TLS_CERT_ALTNAME_INVALID':
+    case 'DEPTH_ZERO_SELF_SIGNED_CERT': case 'SELF_SIGNED_CERT_IN_CHAIN':
+    case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE': case 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY': return 'tls';
+    default: return err instanceof Error && /^Unexpected server response: [1-5]\d\d$/.test(err.message)
+      ? 'upgrade_rejected' : 'unknown';
+  }
+}
+
 /** Normalize inbound WebSocket payload data to UTF-8 text. */
 function normalizeIncomingData(data: Buffer | string | ArrayBuffer | Buffer[]): string {
   if (typeof data === 'string') {
@@ -84,8 +98,8 @@ export class LifecycleManager {
     this.client.on('open', () => this.handleOpen());
     this.client.on('message', (data) => this.handleMessage(data));
     this.client.on('close', () => this.handleClose());
-    this.client.on('error', () => {
-        logger.error('WebSocket transport error');
+    this.client.on('error', (err) => {
+        logger.error({ reason: transportErrorReason(err) }, 'WebSocket transport error');
     });
   }
 
@@ -355,7 +369,6 @@ export class LifecycleManager {
 
   private clearAuthenticatedSession(stopServices = true): void {
     this.sessionReady = false;
-    this.metricsApiAvailable = false;
     if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
     if (this.metricsProbeTimer) clearTimeout(this.metricsProbeTimer);
     this.handshakeTimer = null;

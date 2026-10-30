@@ -13,6 +13,7 @@ const {
   clearSessionPolicy,
   MockWatchManager,
   watchManagerInstances,
+  logError,
 } = vi.hoisted(() => {
   class SimpleEmitter {
     private listeners = new Map<string, Array<(...args: any[]) => void>>();
@@ -40,6 +41,7 @@ const {
   const setSessionPolicy = vi.fn();
   const clearSessionPolicy = vi.fn();
   const watchManagerInstances: any[] = [];
+  const logError = vi.fn();
 
   class MockWebSocketClient extends SimpleEmitter {
     connect = vi.fn();
@@ -88,6 +90,7 @@ const {
     clearSessionPolicy,
     MockWatchManager,
     watchManagerInstances,
+    logError,
   };
 });
 
@@ -105,6 +108,9 @@ vi.mock('../config.js', () => ({
     ACORNOPS_AGENT_HANDSHAKE_PROBE_TIMEOUT_MS: 5000,
   },
 }));
+vi.mock('pino', () => ({ default: () => ({
+  child: () => ({ info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: logError }),
+}) }));
 vi.mock('../transport/websocket-client.js', () => ({ WebSocketClient: MockWebSocketClient }));
 vi.mock('./snapshot-manager.js', () => ({ SnapshotManager: MockSnapshotManager }));
 vi.mock('./watch/watch-manager.js', () => ({ WatchManager: MockWatchManager }));
@@ -571,7 +577,7 @@ describe('LifecycleManager', () => {
     expect(handleRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores a previous connection metrics probe and resets cached availability', async () => {
+  it('ignores a previous connection probe while retaining last-known metrics availability', async () => {
     let resolveOld!: (available: boolean) => void;
     checkMetricsApi.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
     checkMetricsApi.mockReturnValue(new Promise(() => {}));
@@ -591,7 +597,29 @@ describe('LifecycleManager', () => {
     expect((lifecycle as any).metricsApiAvailable).toBe(true);
     client.emit('close');
     client.emit('open');
-    expect(JSON.parse(client.send.mock.calls.at(-1)![0]).params.clusterFeatures.metricsApiAvailable).toBe(false);
+    expect(JSON.parse(client.send.mock.calls.at(-1)![0]).params.clusterFeatures.metricsApiAvailable).toBe(true);
+  });
+
+  it.each([
+    ['ENOTFOUND', 'dns'], ['ECONNREFUSED', 'connection_refused'],
+    ['CERT_HAS_EXPIRED', 'tls'], ['ERR_TLS_CERT_ALTNAME_INVALID', 'tls'],
+    ['secret-marker', 'unknown'],
+  ])('logs a bounded transport category for %s without error details', (code, reason) => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    clientInstances[0]!.emit('error', Object.assign(new Error('secret-marker https://user:password@host'), { code }));
+    expect(logError).toHaveBeenCalledWith({ reason }, 'WebSocket transport error');
+    expect(JSON.stringify(logError.mock.calls)).not.toContain('secret-marker');
+    expect(JSON.stringify(logError.mock.calls)).not.toContain('password');
+  });
+
+  it('classifies HTTP upgrade rejection without exposing the peer response', () => {
+    new LifecycleManager();
+    clientInstances[0]!.emit('error', new Error('Unexpected server response: 401'));
+    expect(logError).toHaveBeenLastCalledWith({ reason: 'upgrade_rejected' }, 'WebSocket transport error');
+    clientInstances[0]!.emit('error', new Error('Unexpected server response: secret-marker'));
+    expect(logError).toHaveBeenLastCalledWith({ reason: 'unknown' }, 'WebSocket transport error');
+    expect(JSON.stringify(logError.mock.calls)).not.toContain('secret-marker');
   });
 });
 

@@ -88,8 +88,9 @@ Bounded, paginated list calls are still used for initial cache sync, namespace-s
 
 Connection/upgrade and application-handshake waits each have a 10-second limit.
 Transport pings run every 30 seconds with a 10-second pong deadline; a silent
-peer is normally detected within 40 seconds. Shutdown allows one second for
-the close exchange. These bounds assume a responsive event loop.
+peer is normally detected within 40 seconds. An in-process stop, including
+leadership loss, bounds the close exchange to one second; process termination
+can close sockets immediately. These bounds assume a responsive event loop.
 
 Outbound frames are limited to 10 MiB and admission checks the existing socket
 buffer plus payload against 16 MiB. This bounds admitted payload buffering,
@@ -99,6 +100,9 @@ Oversize or backpressured snapshots are dropped without a replay queue.
 Failed control-message admission or asynchronous socket-write failure revokes
 the session immediately and reconnects with the existing jittered backoff.
 Logs report bounded reasons and byte counts rather than payloads or peer text.
+Transport errors distinguish DNS, refused connections, TLS and upgrade rejection
+without exposing error messages. The handshake reports last-known metrics API
+availability; only a probe completing in its current generation updates that value.
 
 Reconnect requires a fresh authenticated handshake. Pending replies from the
 old connection are discarded; successful local send admission does not prove
@@ -125,6 +129,8 @@ delivery. Inspect any uncertain write outcome before deciding to retry.
 - Lease requests time out after at most two seconds (or the shorter configured
   retry/deadline). An independent monotonic watchdog stops the active runtime
   when renewal is unconfirmed for `renewDeadlineMs`, even if a request hangs.
+  Active retries run sooner when needed to leave half the remaining renewal
+  window available for API calls; passive retries retain the configured cadence.
   Shutdown revokes local authority before a best-effort one-second Lease release.
   An adapter that ignores cancellation keeps its single request slot occupied;
   restart that passive replica if it never settles. Event-loop suspension can

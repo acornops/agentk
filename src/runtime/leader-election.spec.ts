@@ -184,6 +184,26 @@ describe('LeaderElector', () => {
     expect(subject.hasLeadership()).toBe(false);
   });
 
+  it.each([0, 400])('keeps healthy leadership when retry equals the deadline and renewal takes %i ms', async (latency) => {
+    const api = new FakeLeaseApi();
+    const replace = api.replaceNamespacedLease.bind(api);
+    const renew = vi.spyOn(api, 'replaceNamespacedLease').mockImplementation(async (...args) => {
+      if (latency) await new Promise((resolve) => setTimeout(resolve, latency));
+      return replace(...args);
+    });
+    const onAcquired = vi.fn();
+    const onLost = vi.fn();
+    const subject = elector(api, { onAcquired, onLost }, { retryPeriodMs: 2000, renewDeadlineMs: 2000 });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(onLost).not.toHaveBeenCalled();
+    expect(onAcquired).toHaveBeenCalledTimes(1);
+    expect(api.replaceCalls).toBeGreaterThan(2);
+    expect(subject.hasLeadership()).toBe(true);
+    renew.mockRestore();
+    await subject.stop();
+  });
+
   it('emits lost and releases the Lease on shutdown', async () => {
     const api = new FakeLeaseApi();
     const onLost = vi.fn();

@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { JsonRpcResponse } from './mcp/protocol.js';
+import type { V1Lease } from '@kubernetes/client-node';
 
 vi.mock('./k8s/metrics.js', () => ({ checkMetricsApi: vi.fn().mockResolvedValue(false) }));
 
@@ -277,4 +278,63 @@ describe('E2E Agent Lifecycle', () => {
     await waitForMessage(messages, (message) => message.socket === sockets[1] && message.parsed?.method === 'lifecycle/handshake', 2000);
     expect(messages.every((message) => message.parsed?.method === 'lifecycle/handshake')).toBe(true);
   }, 15000);
+
+  it('revokes the authenticated runtime on Lease expiry and stays disconnected while passive', async () => {
+    const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    vi.stubEnv('ACORNOPS_AGENT_PLATFORM_URL', `ws://127.0.0.1:${(server.address() as { port: number }).port}`);
+    server.on('connection', (socket) => {
+      sockets.push(socket);
+      socket.on('message', (data) => {
+        if (JSON.parse(data.toString()).method === 'lifecycle/handshake') socket.send(JSON.stringify({
+          jsonrpc: '2.0', id: 'handshake-1', result: {
+            workspaceId: 'workspace-e2e', targetId: 'cluster-e2e', targetType: 'kubernetes',
+            sessionPolicy: { allowedTools: [], writeEnabled: false }, config: {},
+          },
+        }));
+      });
+    });
+    const { LifecycleManager } = await import('./core/lifecycle.js');
+    const { LeaderElector } = await import('./runtime/leader-election.js');
+    const { SnapshotManager } = await import('./core/snapshot-manager.js');
+    const { mcpRouter } = await import('./mcp/router.js');
+    const snapshots = vi.spyOn(SnapshotManager.prototype, 'start').mockImplementation(() => {});
+    const manager = new LifecycleManager();
+    managers.push(manager);
+    let lease: V1Lease | null = null;
+    let stalled = false;
+    const elector = new LeaderElector({
+      leaseName: 'fixture', leaseNamespace: 'fixture', holderIdentity: 'pod-1',
+      leaseDurationMs: 15000, renewDeadlineMs: 1000, retryPeriodMs: 200,
+      onAcquired: () => manager.start(), onLost: () => manager.stop(),
+      api: {
+        readNamespacedLease: async (_name, _namespace, signal) => {
+          if (stalled) await new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(new Error('Fixture request aborted')), { once: true });
+          });
+          if (!lease) throw Object.assign(new Error('Lease not found'), { statusCode: 404 });
+          return lease;
+        },
+        createNamespacedLease: async (_namespace, body) => (lease = body),
+        replaceNamespacedLease: async (_name, _namespace, body) => (lease = body),
+      },
+    });
+    try {
+      elector.start();
+      await waitForCondition(() => snapshots.mock.calls.length === 1, 2000);
+      expect(elector.hasLeadership()).toBe(true);
+      stalled = true;
+      await waitForCondition(() => sockets[0]?.readyState === WebSocket.CLOSED, 2000);
+      expect(manager.isRunning()).toBe(false);
+      expect(elector.hasLeadership()).toBe(false);
+      expect(await mcpRouter.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
+        .toMatchObject({ error: { data: { code: 'TOOL_NOT_ALLOWED' } } });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      expect(sockets).toHaveLength(1);
+    } finally {
+      await elector.stop();
+      manager.stop();
+    }
+  }, 7000);
 });

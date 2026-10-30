@@ -97,6 +97,7 @@ The agent must also reject a handshake response with a missing or malformed
 policy is installed for the current connection generation.
 
 The agent must honor `config.maxSnapshotBytes` as a compressed-payload ceiling for `notify/snapshot`.
+The control plane caps this advertised budget at its WebSocket receiver payload limit.
 The agent must honor `config.namespaceScope` at handshake and `config/update_namespace_scope` requests at runtime. Namespace scope updates apply to collectors and namespace-guarded tools without restarting the agent.
 
 Current control-plane-expected builtin tool names:

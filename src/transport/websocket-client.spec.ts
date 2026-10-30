@@ -31,6 +31,7 @@ const { MockWebSocket, socketInstances } = vi.hoisted(() => {
     readyState = 0;
     bufferedAmount = 0;
     ping = vi.fn();
+    pong = vi.fn();
     send = vi.fn();
     close = vi.fn(() => {
       this.readyState = MockWebSocket.CLOSED;
@@ -97,6 +98,7 @@ describe('WebSocketClient', () => {
       handshakeTimeout: 10000,
       closeTimeout: 1000,
       perMessageDeflate: false,
+      autoPong: false,
       headers: {
         'x-agent-key': 'agent-key',
         'x-connector-version': 'agentk/1.2.3',
@@ -197,6 +199,61 @@ describe('WebSocketClient', () => {
     vi.advanceTimersByTime(500);
     expect(socketInstances).toHaveLength(2);
     expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces an absolute connection deadline and ignores a late open', () => {
+    const client = new WebSocketClient('wss://platform.example/ws');
+    const closed = vi.fn();
+    const opened = vi.fn();
+    client.on('close', closed);
+    client.on('open', opened);
+    client.connect();
+    const socket = socketInstances[0]!;
+    vi.advanceTimersByTime(9999);
+    expect(closed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(closed).toHaveBeenCalledTimes(1);
+    socket.emit('open');
+    expect(opened).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(socketInstances).toHaveLength(2);
+    client.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('echoes peer ping payloads within the buffer limit and revokes on saturation', () => {
+    const client = new WebSocketClient('wss://platform.example/ws');
+    client.connect();
+    const socket = socketInstances[0]!;
+    socket.readyState = MockWebSocket.OPEN;
+    socket.emit('open');
+    const payload = Buffer.alloc(125, 'x');
+    socket.bufferedAmount = 16 * 1024 * 1024 - payload.length - 6;
+    socket.emit('ping', payload);
+    expect(socket.pong).toHaveBeenCalledWith(payload, undefined, expect.any(Function));
+    socket.bufferedAmount++;
+    socket.emit('ping', payload);
+    expect(socket.pong).toHaveBeenCalledTimes(1);
+    expect(socket.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores stale pong write failures and invalidates the current failed pong', () => {
+    const client = new WebSocketClient('wss://platform.example/ws');
+    client.connect();
+    const old = socketInstances[0]!;
+    old.readyState = MockWebSocket.OPEN;
+    old.emit('open');
+    old.emit('ping', Buffer.from('old'));
+    client.forceReconnect();
+    vi.advanceTimersByTime(1000);
+    const current = socketInstances[1]!;
+    current.readyState = MockWebSocket.OPEN;
+    current.emit('open');
+    old.pong.mock.calls[0]![2](new Error('late failure'));
+    expect(client.isOpen()).toBe(true);
+    current.emit('ping', Buffer.from('new'));
+    current.pong.mock.calls[0]![2](new Error('current failure'));
+    expect(current.terminate).toHaveBeenCalledTimes(1);
   });
 
   it('recovers from missing pongs and isolates stale socket events and send callbacks', () => {

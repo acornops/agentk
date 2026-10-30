@@ -9,7 +9,7 @@ import {
 
 const logger = pino({ level: config.ACORNOPS_AGENT_LOG_LEVEL }).child({ module: 'websocket' });
 export type SendResult = 'sent' | 'not_open' | 'backpressure' | 'too_large';
-type CloseReason = 'peer_closed' | 'forced' | 'send_failed' | 'ping_failed' | 'pong_timeout' | 'backpressure';
+type CloseReason = 'peer_closed' | 'forced' | 'send_failed' | 'ping_failed' | 'pong_failed' | 'pong_timeout' | 'connect_timeout' | 'backpressure';
 
 /**
  * Manages the outbound WebSocket connection to the platform.
@@ -22,6 +22,7 @@ export class WebSocketClient extends EventEmitter {
   private url: string;
   private stopped = true;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private connectTimer: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
   private pongTimer: NodeJS.Timeout | null = null;
 
@@ -49,6 +50,7 @@ export class WebSocketClient extends EventEmitter {
       handshakeTimeout: CONNECT_TIMEOUT_MS,
       closeTimeout: CLOSE_TIMEOUT_MS,
       perMessageDeflate: false,
+      autoPong: false,
       headers: {
         'x-agent-key': config.ACORNOPS_AGENT_KEY,
         'x-connector-version': `agentk/${config.CONNECTOR_VERSION}`,
@@ -56,6 +58,8 @@ export class WebSocketClient extends EventEmitter {
     };
     const socket = new WebSocket(this.url, options);
     this.ws = socket;
+    // ws handshakeTimeout measures inactivity; trickled headers must not extend this deadline.
+    this.connectTimer = setTimeout(() => this.invalidateSocket(socket, 'connect_timeout'), CONNECT_TIMEOUT_MS);
 
     socket.on('open', () => {
       if (this.ws !== socket || this.stopped) return;
@@ -79,6 +83,8 @@ export class WebSocketClient extends EventEmitter {
       if (this.pongTimer) clearTimeout(this.pongTimer);
       this.pongTimer = null;
     });
+
+    socket.on('ping', (data: Buffer) => this.sendControlFrame(socket, 'pong', data));
 
     socket.on('error', (err) => {
       if (this.ws !== socket || this.stopped) return;
@@ -118,27 +124,34 @@ export class WebSocketClient extends EventEmitter {
     this.clearSocketTimers();
     this.pingInterval = setInterval(() => {
       if (this.ws !== socket || this.stopped || this.pongTimer) return;
-      // An empty, masked ping occupies six bytes on the wire.
-      if (socket.bufferedAmount + 6 > MAX_OUTBOUND_BUFFER_BYTES) {
-        this.invalidateSocket(socket, 'backpressure');
-        return;
-      }
       this.pongTimer = setTimeout(() => this.invalidateSocket(socket, 'pong_timeout'), PONG_TIMEOUT_MS);
       this.pongTimer.unref();
-      try {
-        socket.ping(undefined, undefined, (err: Error | undefined) => {
-          if (err) this.invalidateSocket(socket, 'ping_failed');
-        });
-      } catch {
-        this.invalidateSocket(socket, 'ping_failed');
-      }
+      this.sendControlFrame(socket, 'ping', Buffer.alloc(0));
     }, PING_INTERVAL_MS);
     this.pingInterval.unref();
   }
 
+  private sendControlFrame(socket: WebSocket, method: 'ping' | 'pong', data: Buffer): void {
+    if (this.ws !== socket || this.stopped || socket.readyState !== WebSocket.OPEN) return;
+    // ws validates control payloads at 125 bytes; the masked frame adds six bytes.
+    if (socket.bufferedAmount + data.length + 6 > MAX_OUTBOUND_BUFFER_BYTES) {
+      this.invalidateSocket(socket, 'backpressure');
+      return;
+    }
+    try {
+      socket[method](data, undefined, (err: Error | undefined) => {
+        if (err) this.invalidateSocket(socket, `${method}_failed`);
+      });
+    } catch {
+      this.invalidateSocket(socket, `${method}_failed`);
+    }
+  }
+
   private clearSocketTimers(): void {
+    if (this.connectTimer) clearTimeout(this.connectTimer);
     if (this.pingInterval) clearInterval(this.pingInterval);
     if (this.pongTimer) clearTimeout(this.pongTimer);
+    this.connectTimer = null;
     this.pingInterval = null;
     this.pongTimer = null;
   }

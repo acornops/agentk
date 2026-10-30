@@ -63,6 +63,22 @@ describe('WebSocketClient real transport', () => {
     expect(client.isOpen()).toBe(false);
   }, 15000);
 
+  it('bounds upgrade time even when partial response headers keep arriving', async () => {
+    const { server, client } = await fixture();
+    server.on('upgrade', (_request, socket) => {
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nX-Wait: ');
+      const trickle = setInterval(() => socket.write('x'), 200);
+      socket.on('close', () => clearInterval(trickle));
+    });
+    const closed = vi.fn();
+    client.on('close', closed);
+    const started = performance.now();
+    client.connect();
+    await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(1), { timeout: 11500, interval: 25 });
+    expect(performance.now() - started).toBeGreaterThanOrEqual(9900);
+    expect(client.isOpen()).toBe(false);
+  }, 13000);
+
   it('recovers from a peer that stops answering pings', async () => {
     const { client, peer } = await fixture(false);
     const connected = once(peer!, 'connection');
@@ -106,6 +122,27 @@ describe('WebSocketClient real transport', () => {
     expect(client.send(payload)).toBe('backpressure');
     expect(transport.bufferedAmount).toBe(buffered);
     expect(client.isOpen()).toBe(true);
+  }, 15000);
+
+  it('bounds pong buffering when a paused reader floods incoming pings', async () => {
+    const { client, peer } = await fixture(true);
+    const connected = once(peer!, 'connection');
+    const opened = once(client, 'open');
+    client.connect();
+    const [socket] = await connected as [WebSocket];
+    socket.pause();
+    await opened;
+    const transport = (client as unknown as { ws: WebSocket }).ws;
+    const closed = vi.fn();
+    client.on('close', closed);
+    const ping = Buffer.alloc(125, 'x');
+    // At most 18.75 MB of ping payloads; never allocate an unbounded flood.
+    for (let sent = 0; sent < 150000 && !closed.mock.calls.length; sent += 1000) {
+      for (let batch = 0; batch < 1000; batch++) socket.ping(ping);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(transport.bufferedAmount).toBeLessThanOrEqual(MAX_OUTBOUND_BUFFER_BYTES);
   }, 15000);
 
   it('bounds normal close when the peer never acknowledges and does not reconnect', async () => {

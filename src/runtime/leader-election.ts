@@ -123,7 +123,11 @@ export class LeaderElector {
     } finally {
       this.tickInFlight = false;
       if (!this.stopped) {
-        this.schedule(this.options.retryPeriodMs);
+        const remaining = this.lastSuccessfulRenewMs + this.options.renewDeadlineMs - performance.now();
+        // Leave time to renew even when the configured retry equals the deadline.
+        this.schedule(this.isLeader
+          ? Math.max(1, Math.min(this.options.retryPeriodMs, remaining / 2))
+          : this.options.retryPeriodMs);
       }
     }
   }
