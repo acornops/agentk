@@ -84,6 +84,26 @@ The snapshot pipeline uses a Kubernetes watch-backed local cache by default. The
 
 Bounded, paginated list calls are still used for initial cache sync, namespace-scope changes, 410-compaction recovery, and fallback when the watch cache is disabled, warming, or unhealthy. Monitor `snapshot-manager` logs for `durationMs`, `skippedSnapshots`, `droppedSnapshots`, `originalBytes`, and `compressedBytes`, and monitor `watch-manager` logs for repeated relist or reconnect warnings. If snapshots regularly skip interval ticks, increase the snapshot interval before raising `ACORNOPS_AGENT_K8S_CONCURRENCY`; higher concurrency can increase API server pressure when list latency is already the bottleneck.
 
+## WebSocket Recovery
+
+Connection/upgrade and application-handshake waits each have a 10-second limit.
+Transport pings run every 30 seconds with a 10-second pong deadline; a silent
+peer is normally detected within 40 seconds. Shutdown allows one second for
+the close exchange. These bounds assume a responsive event loop.
+
+Outbound frames are limited to 10 MiB and admission checks the existing socket
+buffer plus payload against 16 MiB. This bounds admitted payload buffering,
+not process RSS or operating-system buffers. Snapshots use the negotiated
+smaller budget, or 10 MiB if omitted; compression remains gzip only.
+Oversize or backpressured snapshots are dropped without a replay queue.
+Failed control-message admission or asynchronous socket-write failure revokes
+the session immediately and reconnects with the existing jittered backoff.
+Logs report bounded reasons and byte counts rather than payloads or peer text.
+
+Reconnect requires a fresh authenticated handshake. Pending replies from the
+old connection are discarded; successful local send admission does not prove
+delivery. Inspect any uncertain write outcome before deciding to retry.
+
 ## Failure Modes
 
 - Agent cannot connect: verify `ACORNOPS_AGENT_PLATFORM_URL`, DNS, TLS, and the platform `/api/v1/agent/connect` route. With additional CA trust enabled, inspect pod events for a missing ConfigMap, Secret, or key; repeated issuer errors indicate a wrong or incomplete bundle, while hostname mismatches and expired certificates must be fixed at the platform endpoint.

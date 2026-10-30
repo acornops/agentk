@@ -43,9 +43,9 @@ const {
 
   class MockWebSocketClient extends SimpleEmitter {
     connect = vi.fn();
-    send = vi.fn();
+    send = vi.fn<(...args: any[]) => string>().mockReturnValue('sent');
     close = vi.fn();
-    forceReconnect = vi.fn();
+    forceReconnect = vi.fn(() => this.emit('close'));
     markReady = vi.fn();
     isOpen = vi.fn(() => true);
 
@@ -488,4 +488,120 @@ describe('LifecycleManager', () => {
     expect(snapshotManagerInstances[0]!.start).not.toHaveBeenCalled();
     expect(clientInstances[0]!.send).toHaveBeenCalledTimes(1);
   });
+
+  it('recovers when application authentication stalls and cancels the deadline on stop', () => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    const client = clientInstances[0]!;
+    client.emit('open');
+    vi.advanceTimersByTime(9999);
+    expect(client.forceReconnect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(client.forceReconnect).toHaveBeenCalledTimes(1);
+    expect(snapshotManagerInstances[0]!.stop).toHaveBeenCalledTimes(1);
+    client.emit('open');
+    lifecycle.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60000);
+    expect(client.forceReconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels the handshake deadline and bounds an omitted snapshot budget', () => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    const client = clientInstances[0]!;
+    client.emit('open');
+    acceptHandshake(client);
+    expect(snapshotManagerInstances[0]!.start).toHaveBeenCalledWith(60, 10 * 1024 * 1024);
+    vi.advanceTimersByTime(10000);
+    expect(client.forceReconnect).not.toHaveBeenCalled();
+  });
+
+  it.each(['backpressure', 'too_large'])('drops a %s snapshot without reconnecting or queueing it', (reason) => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    const client = clientInstances[0]!;
+    acceptHandshake(client);
+    client.send.mockReturnValueOnce(reason);
+    snapshotManagerInstances[0]!.onSnapshot(Buffer.from('snapshot'));
+    expect(client.send).toHaveBeenCalledTimes(1);
+    expect(client.forceReconnect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(client.send).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['handshake', 'heartbeat', 'reply', 'protocol error'])('revokes the session immediately if a %s cannot be sent', async (kind) => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    const client = clientInstances[0]!;
+    client.send.mockReturnValue('backpressure');
+    if (kind === 'handshake') client.emit('open');
+    else {
+      acceptHandshake(client);
+      if (kind === 'heartbeat') vi.advanceTimersByTime(30000);
+      else client.emit('message', JSON.stringify({
+        jsonrpc: kind === 'reply' ? '2.0' : 'invalid', id: 7, method: 'tools/list', params: {},
+      }));
+    }
+    await Promise.resolve();
+    expect(client.forceReconnect).toHaveBeenCalledTimes(1);
+    expect(clearSessionPolicy).toHaveBeenLastCalledWith();
+    expect(snapshotManagerInstances[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(watchManagerInstances[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('never sends a pending tool reply on a replacement session', async () => {
+    let resolveReply!: (value: unknown) => void;
+    handleRequest.mockReturnValueOnce(new Promise((resolve) => { resolveReply = resolve; }));
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    const client = clientInstances[0]!;
+    client.emit('open');
+    acceptHandshake(client);
+    client.emit('message', JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: {} }));
+    client.forceReconnect();
+    expect(clearSessionPolicy).toHaveBeenLastCalledWith();
+    client.emit('open');
+    acceptHandshake(client);
+    client.send.mockClear();
+    resolveReply({ jsonrpc: '2.0', id: 7, result: { old: true } });
+    await Promise.resolve();
+    expect(client.send).not.toHaveBeenCalled();
+    expect(handleRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a previous connection metrics probe and resets cached availability', async () => {
+    let resolveOld!: (available: boolean) => void;
+    checkMetricsApi.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    checkMetricsApi.mockReturnValue(new Promise(() => {}));
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    const client = clientInstances[0]!;
+    client.emit('open');
+    client.emit('close');
+    client.emit('open');
+    resolveOld(true);
+    await Promise.resolve();
+    expect((lifecycle as any).metricsApiAvailable).toBe(false);
+    client.emit('close');
+    checkMetricsApi.mockResolvedValueOnce(true);
+    client.emit('open');
+    await Promise.resolve();
+    expect((lifecycle as any).metricsApiAvailable).toBe(true);
+    client.emit('close');
+    client.emit('open');
+    expect(JSON.parse(client.send.mock.calls.at(-1)![0]).params.clusterFeatures.metricsApiAvailable).toBe(false);
+  });
 });
+
+/** Install the normal fixture session on a connected client. */
+function acceptHandshake(client: InstanceType<typeof MockWebSocketClient>): void {
+  client.emit('message', JSON.stringify({
+    jsonrpc: '2.0', id: 'handshake-1',
+    result: {
+      workspaceId: 'ws-1', targetId: 'cluster-1', targetType: 'kubernetes',
+      sessionPolicy: { allowedTools: ['list_resources'], writeEnabled: true }, config: {},
+    },
+  }));
+}

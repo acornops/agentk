@@ -1,0 +1,7 @@
+export const MAX_OUTBOUND_FRAME_BYTES = 10 * 1024 * 1024;
+export const MAX_OUTBOUND_BUFFER_BYTES = 16 * 1024 * 1024;
+export const CONNECT_TIMEOUT_MS = 10000;
+export const HANDSHAKE_RESPONSE_TIMEOUT_MS = 10000;
+export const PING_INTERVAL_MS = 30000;
+export const PONG_TIMEOUT_MS = 10000;
+export const CLOSE_TIMEOUT_MS = 1000;

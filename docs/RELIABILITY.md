@@ -19,3 +19,7 @@
 - Prefer explicit degraded behavior over silent data loss.
 - Keep lifecycle loops bounded and retry-aware.
 - Capture new protocol invariants in docs or checks when they become durable.
+- Forced socket recovery immediately clears session policy and stops telemetry;
+  old replies, probes, and socket callbacks cannot affect a replacement session.
+- Keep the WebSocket limits and recovery cases in `docs/OPERATIONS.md` covered
+  by unit tests and real loopback transport/lifecycle tests.

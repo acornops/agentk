@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { config } from '../config.js';
 import { WebSocketClient } from '../transport/websocket-client.js';
+import { HANDSHAKE_RESPONSE_TIMEOUT_MS, MAX_OUTBOUND_FRAME_BYTES } from '../transport/limits.js';
 import {
     createRequest,
     createNotification,
@@ -56,6 +57,8 @@ export class LifecycleManager {
   private watchStore: WatchStore;
   private watchManager: WatchManager;
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private handshakeTimer: NodeJS.Timeout | null = null;
+  private metricsProbeTimer: NodeJS.Timeout | null = null;
   private metricsApiAvailable = false;
   private running = false;
   private sessionReady = false;
@@ -67,7 +70,7 @@ export class LifecycleManager {
     this.watchStore = new WatchStore();
     this.watchManager = new WatchManager(this.watchStore, () => this.snapshotManager.triggerSnapshot());
     this.snapshotManager = new SnapshotManager(
-      (payload) => this.sendOutbound(payload),
+      (payload) => this.sendOutbound(payload, 'snapshot'),
       undefined,
       [
         new ResourceCollector(this.watchStore),
@@ -81,8 +84,8 @@ export class LifecycleManager {
     this.client.on('open', () => this.handleOpen());
     this.client.on('message', (data) => this.handleMessage(data));
     this.client.on('close', () => this.handleClose());
-    this.client.on('error', (err) => {
-        logger.error({ err }, 'WebSocket error occurred');
+    this.client.on('error', () => {
+        logger.error('WebSocket transport error');
     });
   }
 
@@ -114,29 +117,35 @@ export class LifecycleManager {
   }
 
   private refreshMetricsAvailability(): void {
+    const generation = this.runtimeGeneration;
     let settled = false;
     const timeoutMs = config.ACORNOPS_AGENT_HANDSHAKE_PROBE_TIMEOUT_MS;
 
     const timer = setTimeout(() => {
-      if (settled) return;
+      if (settled || !this.running || generation !== this.runtimeGeneration) return;
       settled = true;
+      this.metricsProbeTimer = null;
       logger.warn(
         { timeoutMs },
         'Metrics API probe timed out; keeping metrics disabled for this connection'
       );
     }, timeoutMs);
+    this.metricsProbeTimer = timer;
+    timer.unref();
 
     void checkMetricsApi()
       .then((available) => {
-        if (settled) return;
+        if (settled || !this.running || generation !== this.runtimeGeneration) return;
         settled = true;
         clearTimeout(timer);
+        this.metricsProbeTimer = null;
         this.metricsApiAvailable = available;
       })
       .catch((err) => {
-        if (settled) return;
+        if (settled || !this.running || generation !== this.runtimeGeneration) return;
         settled = true;
         clearTimeout(timer);
+        this.metricsProbeTimer = null;
         logger.warn({ err }, 'Metrics API probe failed; keeping metrics disabled');
       });
   }
@@ -150,6 +159,13 @@ export class LifecycleManager {
     this.clearAuthenticatedSession(false);
     logger.info('Performing handshake...');
     this.refreshMetricsAvailability();
+    const generation = this.runtimeGeneration;
+    this.handshakeTimer = setTimeout(() => {
+      if (!this.running || generation !== this.runtimeGeneration || this.sessionReady) return;
+      logger.warn('Handshake response timed out');
+      this.client.forceReconnect();
+    }, HANDSHAKE_RESPONSE_TIMEOUT_MS);
+    this.handshakeTimer.unref();
 
     const handshake = createRequest('lifecycle/handshake', {
       targetId: config.TARGET_ID,
@@ -172,6 +188,7 @@ export class LifecycleManager {
 
   private async handleMessage(data: Buffer | string | ArrayBuffer | Buffer[]): Promise<void> {
     if (!this.running) return;
+    const generation = this.runtimeGeneration;
     try {
       const message = JSON.parse(normalizeIncomingData(data));
       if (!message || typeof message !== 'object' || Array.isArray(message)) {
@@ -212,7 +229,7 @@ export class LifecycleManager {
         }
         // Request
         const response = await mcpRouter.handleRequest(request);
-        this.sendOutbound(JSON.stringify(response));
+        this.sendOutbound(JSON.stringify(response), 'control', generation);
       } else if ('method' in message) {
         const notification = JsonRpcNotificationSchema.safeParse(message);
         if (!notification.success) throw new Error('Invalid JSON-RPC notification');
@@ -226,7 +243,6 @@ export class LifecycleManager {
   private handleHandshakeResponse(response: JsonRpcResponse): void {
     if (!this.running) return;
     if (response.error) {
-      this.clearAuthenticatedSession();
       logger.error({ code: response.error.code }, 'Handshake failed');
       this.client.forceReconnect();
       return;
@@ -261,7 +277,7 @@ export class LifecycleManager {
       typeof result.sessionPolicy.writeEnabled !== 'boolean' ||
       (result.config !== undefined && (!result.config || typeof result.config !== 'object' || Array.isArray(result.config))) ||
       (result.config?.snapshotInterval !== undefined && (!Number.isInteger(result.config.snapshotInterval) || result.config.snapshotInterval <= 0)) ||
-      (result.config?.maxSnapshotBytes !== undefined && (!Number.isInteger(result.config.maxSnapshotBytes) || result.config.maxSnapshotBytes <= 0 || result.config.maxSnapshotBytes > 10 * 1024 * 1024))
+      (result.config?.maxSnapshotBytes !== undefined && (!Number.isInteger(result.config.maxSnapshotBytes) || result.config.maxSnapshotBytes <= 0 || result.config.maxSnapshotBytes > MAX_OUTBOUND_FRAME_BYTES))
     ) {
       logger.error(
         {
@@ -271,7 +287,6 @@ export class LifecycleManager {
         },
         'Handshake response contract rejected'
       );
-      this.clearAuthenticatedSession();
       this.client.forceReconnect();
       return;
     }
@@ -283,7 +298,6 @@ export class LifecycleManager {
         setNamespaceScope(remoteConfig.namespaceScope);
       } catch {
         logger.error('Handshake response contained an invalid namespace scope');
-        this.clearAuthenticatedSession();
         this.client.forceReconnect();
         return;
       }
@@ -300,8 +314,10 @@ export class LifecycleManager {
 
     if (!this.running) return;
     this.sessionReady = true;
+    if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = null;
     this.watchManager.start();
-    this.snapshotManager.start(remoteConfig?.snapshotInterval ?? 60, remoteConfig?.maxSnapshotBytes);
+    this.snapshotManager.start(remoteConfig?.snapshotInterval ?? 60, remoteConfig?.maxSnapshotBytes ?? MAX_OUTBOUND_FRAME_BYTES);
     this.startHeartbeat();
   }
 
@@ -339,6 +355,11 @@ export class LifecycleManager {
 
   private clearAuthenticatedSession(stopServices = true): void {
     this.sessionReady = false;
+    this.metricsApiAvailable = false;
+    if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
+    if (this.metricsProbeTimer) clearTimeout(this.metricsProbeTimer);
+    this.handshakeTimer = null;
+    this.metricsProbeTimer = null;
     mcpRouter.clearSessionPolicy();
     clearRemoteNamespaceScope();
     if (stopServices) {
@@ -368,8 +389,11 @@ export class LifecycleManager {
     }
   }
 
-  private sendOutbound(payload: string | Buffer): void {
-    if (!this.running) return;
-    this.client.send(payload);
+  private sendOutbound(payload: string | Buffer, kind: 'snapshot' | 'control' = 'control', generation = this.runtimeGeneration): void {
+    if (!this.running || generation !== this.runtimeGeneration) return;
+    const result = this.client.send(payload);
+    if (result === 'sent') return;
+    logger.warn({ kind, reason: result, bytes: Buffer.byteLength(payload) }, 'Outbound message not admitted');
+    if (kind === 'control') this.client.forceReconnect();
   }
 }
