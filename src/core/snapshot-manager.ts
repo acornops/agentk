@@ -21,6 +21,7 @@ export class SnapshotManager {
   private interval: NodeJS.Timeout | null = null;
   private currentIntervalMs: number = 60000;
   private maxSnapshotBytes = Number.POSITIVE_INFINITY;
+  private maxDecodedSnapshotBytes = Number.POSITIVE_INFINITY;
   private onSnapshot: (payload: Buffer | string) => void;
   private gzipPayload: (buffer: Buffer) => Promise<Buffer>;
   private active = false;
@@ -49,7 +50,7 @@ export class SnapshotManager {
    * Starts the periodic snapshot pipeline.
    * @param intervalSeconds Frequency of snapshots (min 10s).
    */
-  public start(intervalSeconds: number = 60, maxSnapshotBytes?: number): void {
+  public start(intervalSeconds: number = 60, maxSnapshotBytes?: number, maxDecodedSnapshotBytes = maxSnapshotBytes): void {
     this.active = true;
     this.generation++;
     this.currentIntervalMs = Math.max(intervalSeconds, 10) * 1000;
@@ -57,6 +58,10 @@ export class SnapshotManager {
       typeof maxSnapshotBytes === 'number' && Number.isFinite(maxSnapshotBytes) && maxSnapshotBytes > 0
         ? maxSnapshotBytes
         : Number.POSITIVE_INFINITY;
+    this.maxDecodedSnapshotBytes =
+      typeof maxDecodedSnapshotBytes === 'number' && Number.isFinite(maxDecodedSnapshotBytes) && maxDecodedSnapshotBytes > 0
+        ? maxDecodedSnapshotBytes
+        : this.maxSnapshotBytes;
     logger.info({ intervalMs: this.currentIntervalMs }, 'Starting snapshot pipeline');
 
     if (this.interval) clearInterval(this.interval);
@@ -81,7 +86,7 @@ export class SnapshotManager {
   /** Replace the active periodic snapshot interval. */
   public setInterval(seconds: number): void {
       logger.info({ seconds }, 'Adjusting snapshot interval');
-      this.start(seconds, this.maxSnapshotBytes);
+      this.start(seconds, this.maxSnapshotBytes, this.maxDecodedSnapshotBytes);
   }
 
   /** Trigger an immediate snapshot when the pipeline is active. */
@@ -158,6 +163,14 @@ export class SnapshotManager {
 
       const payload = JSON.stringify(notification);
       originalBytes = Buffer.byteLength(payload);
+      if (originalBytes > this.maxDecodedSnapshotBytes) {
+        this.droppedSnapshots += 1;
+        logger.warn(
+          { originalBytes, maxDecodedSnapshotBytes: this.maxDecodedSnapshotBytes, droppedSnapshots: this.droppedSnapshots },
+          'Snapshot exceeded remote decoded size budget; dropping snapshot'
+        );
+        return;
+      }
       const compressed = await this.gzipPayload(Buffer.from(payload));
       compressedBytes = compressed.length;
 

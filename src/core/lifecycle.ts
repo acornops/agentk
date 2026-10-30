@@ -274,6 +274,7 @@ export class LifecycleManager {
         namespaceScope?: Partial<NamespaceScope>;
         snapshotInterval?: number;
         maxSnapshotBytes?: number;
+        maxDecodedSnapshotBytes?: number;
       };
     } | undefined;
     if (
@@ -291,7 +292,8 @@ export class LifecycleManager {
       typeof result.sessionPolicy.writeEnabled !== 'boolean' ||
       (result.config !== undefined && (!result.config || typeof result.config !== 'object' || Array.isArray(result.config))) ||
       (result.config?.snapshotInterval !== undefined && (!Number.isInteger(result.config.snapshotInterval) || result.config.snapshotInterval <= 0)) ||
-      (result.config?.maxSnapshotBytes !== undefined && (!Number.isInteger(result.config.maxSnapshotBytes) || result.config.maxSnapshotBytes <= 0 || result.config.maxSnapshotBytes > MAX_OUTBOUND_FRAME_BYTES))
+      (result.config?.maxSnapshotBytes !== undefined && (!Number.isInteger(result.config.maxSnapshotBytes) || result.config.maxSnapshotBytes <= 0 || result.config.maxSnapshotBytes > MAX_OUTBOUND_FRAME_BYTES)) ||
+      (result.config?.maxDecodedSnapshotBytes !== undefined && (!Number.isSafeInteger(result.config.maxDecodedSnapshotBytes) || result.config.maxDecodedSnapshotBytes <= 0))
     ) {
       logger.error(
         {
@@ -331,7 +333,11 @@ export class LifecycleManager {
     if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
     this.handshakeTimer = null;
     this.watchManager.start();
-    this.snapshotManager.start(remoteConfig?.snapshotInterval ?? 60, remoteConfig?.maxSnapshotBytes ?? MAX_OUTBOUND_FRAME_BYTES);
+    const maxSnapshotBytes = remoteConfig?.maxSnapshotBytes ?? MAX_OUTBOUND_FRAME_BYTES;
+    this.snapshotManager.start(
+      remoteConfig?.snapshotInterval ?? 60, maxSnapshotBytes,
+      remoteConfig?.maxDecodedSnapshotBytes ?? maxSnapshotBytes,
+    );
     this.startHeartbeat();
   }
 

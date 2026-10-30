@@ -209,7 +209,7 @@ describe('LifecycleManager', () => {
 
     expect(clientInstances[0]!.markReady).toHaveBeenCalledTimes(1);
     expect(watchManagerInstances[0]!.start).toHaveBeenCalledTimes(1);
-    expect(snapshotManagerInstances[0]!.start).toHaveBeenCalledWith(15, 2048);
+    expect(snapshotManagerInstances[0]!.start).toHaveBeenCalledWith(15, 2048, 2048);
 
     vi.advanceTimersByTime(30000);
 
@@ -518,7 +518,7 @@ describe('LifecycleManager', () => {
     const client = clientInstances[0]!;
     client.emit('open');
     acceptHandshake(client);
-    expect(snapshotManagerInstances[0]!.start).toHaveBeenCalledWith(60, 10 * 1024 * 1024);
+    expect(snapshotManagerInstances[0]!.start).toHaveBeenCalledWith(60, 10 * 1024 * 1024, 10 * 1024 * 1024);
     vi.advanceTimersByTime(10000);
     expect(client.forceReconnect).not.toHaveBeenCalled();
   });
@@ -534,6 +534,20 @@ describe('LifecycleManager', () => {
     expect(client.forceReconnect).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1000);
     expect(client.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors the separate decoded snapshot budget from the handshake', () => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    acceptHandshake(clientInstances[0]!, { maxSnapshotBytes: 1024, maxDecodedSnapshotBytes: 4096 });
+    expect(snapshotManagerInstances[0]!.start).toHaveBeenCalledWith(60, 1024, 4096);
+  });
+  it.each([0, -1, 1.5, '4096', null])('rejects an invalid decoded snapshot budget %s', (maxDecodedSnapshotBytes) => {
+    const lifecycle = new LifecycleManager();
+    lifecycle.start();
+    acceptHandshake(clientInstances[0]!, { maxDecodedSnapshotBytes });
+    expect(clientInstances[0]!.forceReconnect).toHaveBeenCalledTimes(1);
+    expect(snapshotManagerInstances[0]!.start).not.toHaveBeenCalled();
   });
 
   it.each(['handshake', 'heartbeat', 'reply', 'protocol error'])('revokes the session immediately if a %s cannot be sent', async (kind) => {
@@ -624,12 +638,12 @@ describe('LifecycleManager', () => {
 });
 
 /** Install the normal fixture session on a connected client. */
-function acceptHandshake(client: InstanceType<typeof MockWebSocketClient>): void {
+function acceptHandshake(client: InstanceType<typeof MockWebSocketClient>, config: Record<string, unknown> = {}): void {
   client.emit('message', JSON.stringify({
     jsonrpc: '2.0', id: 'handshake-1',
     result: {
       workspaceId: 'ws-1', targetId: 'cluster-1', targetType: 'kubernetes',
-      sessionPolicy: { allowedTools: ['list_resources'], writeEnabled: true }, config: {},
+      sessionPolicy: { allowedTools: ['list_resources'], writeEnabled: true }, config,
     },
   }));
 }

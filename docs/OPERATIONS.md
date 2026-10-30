@@ -97,6 +97,10 @@ buffer plus payload against 16 MiB. This bounds admitted payload buffering,
 not process RSS or operating-system buffers. Snapshots use the negotiated
 smaller budget, or 10 MiB if omitted; compression remains gzip only.
 Oversize or backpressured snapshots are dropped without a replay queue.
+Snapshots above the negotiated decoded limit are dropped before compression, so
+highly compressible payloads cannot cause a receiver rejection and reconnect loop.
+If these drops persist, reduce the namespace scope or adjust the control plane's
+existing decoded-size limit to the intended cluster size, then reconnect the agent.
 Failed control-message admission or asynchronous socket-write failure revokes
 the session immediately and reconnects with the existing jittered backoff.
 Logs report bounded reasons and byte counts rather than payloads or peer text.

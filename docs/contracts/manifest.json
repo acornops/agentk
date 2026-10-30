@@ -33,6 +33,7 @@
         "sessionPolicy.writeEnabled",
         "config.snapshotInterval",
         "config.maxSnapshotBytes",
+        "config.maxDecodedSnapshotBytes",
         "config.namespaceScope.include",
         "config.namespaceScope.exclude"
       ],

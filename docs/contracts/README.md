@@ -87,6 +87,7 @@ Handshake success response must include:
 - `sessionPolicy.writeEnabled`
 - `config.snapshotInterval`
 - `config.maxSnapshotBytes`
+- `config.maxDecodedSnapshotBytes` (optional for older control planes)
 - `config.namespaceScope.{include,exclude}`
 - `config.namespaceScope.include`
 - `config.namespaceScope.exclude`
@@ -98,6 +99,10 @@ policy is installed for the current connection generation.
 
 The agent must honor `config.maxSnapshotBytes` as a compressed-payload ceiling for `notify/snapshot`.
 The control plane caps this advertised budget at its WebSocket receiver payload limit.
+The agent also honors `config.maxDecodedSnapshotBytes` before compression, counting
+UTF-8 bytes of the entire JSON-RPC notification. If omitted, the compressed budget
+is used as a conservative decoded ceiling. Exceeding either budget drops the
+snapshot without reconnecting; snapshots are not truncated into partial state.
 The agent must honor `config.namespaceScope` at handshake and `config/update_namespace_scope` requests at runtime. Namespace scope updates apply to collectors and namespace-guarded tools without restarting the agent.
 
 Current control-plane-expected builtin tool names:

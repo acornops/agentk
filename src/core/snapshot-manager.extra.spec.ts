@@ -92,7 +92,7 @@ describe('SnapshotManager extra coverage', () => {
     const sent: Array<Buffer | string> = [];
     const manager = new SnapshotManager((payload) => sent.push(payload), async (payload) => gzipSync(payload));
 
-    manager.start(10, 1);
+    manager.start(10, 1, 20_000);
     await flushPromises();
 
     expect(sent).toHaveLength(0);
@@ -120,6 +120,52 @@ describe('SnapshotManager extra coverage', () => {
     failCompression = false;
     manager.triggerSnapshot();
     await vi.waitFor(() => expect(sent).toHaveLength(1));
+  });
+
+  it('drops decoded oversize snapshots before gzip and retains the limit on interval changes', async () => {
+    const sent: Array<Buffer | string> = [];
+    let compressions = 0;
+    const manager = new SnapshotManager((payload) => sent.push(payload), async (payload) => {
+      compressions++;
+      return gzipSync(payload);
+    });
+    // Six MiB of UTF-8 data compresses far below the three MiB wire budget.
+    collectorResults.set('resources', { pods: ['é'.repeat(3 * 1024 * 1024)] });
+    manager.start(10, 3 * 1024 * 1024, 5 * 1024 * 1024);
+    await flushPromises();
+    expect(sent).toHaveLength(0);
+    expect(compressions).toBe(0);
+
+    manager.setInterval(20);
+    await flushPromises();
+    expect(sent).toHaveLength(0);
+    expect(compressions).toBe(0);
+
+    // Four MiB decoded is valid even though it is above the wire budget.
+    collectorResults.set('resources', { pods: ['é'.repeat(2 * 1024 * 1024)] });
+    manager.triggerSnapshot();
+    await flushPromises();
+    expect(sent).toHaveLength(1);
+    expect(gunzipSync(sent[0] as Buffer).length).toBeGreaterThan(3 * 1024 * 1024);
+    expect((sent[0] as Buffer).length).toBeLessThan(3 * 1024 * 1024);
+  });
+
+  it('accepts the exact decoded UTF-8 byte limit and drops one byte over', async () => {
+    const sent: Array<Buffer | string> = [];
+    collectorResults.set('resources', { pods: ['é'] });
+    const manager = new SnapshotManager((payload) => sent.push(payload), async (payload) => gzipSync(payload));
+    manager.start(10);
+    await flushPromises();
+    const payload = gunzipSync(sent[0] as Buffer);
+    expect(payload.length).toBeGreaterThan(payload.toString().length);
+    sent.length = 0;
+    manager.start(10, 1024, payload.length);
+    await flushPromises();
+    expect(sent).toHaveLength(1);
+    sent.length = 0;
+    manager.start(10, 1024, payload.length - 1);
+    await flushPromises();
+    expect(sent).toHaveLength(0);
   });
 
   it('enforces the minimum ten second interval for periodic snapshots', async () => {
