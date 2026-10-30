@@ -136,8 +136,8 @@ describe('WebSocketClient real transport', () => {
     const closed = vi.fn();
     client.on('close', closed);
     const ping = Buffer.alloc(125, 'x');
-    // At most 18.75 MB of ping payloads; never allocate an unbounded flood.
-    for (let sent = 0; sent < 150000 && !closed.mock.calls.length; sent += 1000) {
+    // OS socket buffers differ; offer at most 62.5 MB to fill the bounded ws queue.
+    for (let sent = 0; sent < 500000 && !closed.mock.calls.length; sent += 1000) {
       for (let batch = 0; batch < 1000; batch++) socket.ping(ping);
       await new Promise((resolve) => setImmediate(resolve));
     }
